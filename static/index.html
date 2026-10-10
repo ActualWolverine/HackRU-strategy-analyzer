@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strategy Analyzer</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f4f2;
+    --surface-1: #fcfcfb;
+    --border: #e1e0dc;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --grid: #ecebe7;
+    --series-1: #2a78d6;
+    --accent-bg: #e3eefb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-0: #121211;
+      --surface-1: #1a1a19;
+      --border: #2e2e2c;
+      --text-primary: #f0efec;
+      --text-secondary: #c3c2b7;
+      --grid: #262625;
+      --series-1: #3987e5;
+      --accent-bg: #1f3250;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-0: #121211;
+    --surface-1: #1a1a19;
+    --border: #2e2e2c;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --grid: #262625;
+    --series-1: #3987e5;
+    --accent-bg: #1f3250;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--surface-0);
+    color: var(--text-primary);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 16px; }
+
+  .filters { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 16px; }
+  .filters label { color: var(--text-secondary); font-size: 13px; }
+  select, button {
+    font: inherit; color: var(--text-primary);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; cursor: pointer;
+  }
+  .range { display: flex; gap: 4px; }
+  .range button[aria-pressed="true"] { background: var(--accent-bg); border-color: var(--series-1); }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px;
+  }
+  .readout {
+    display: flex; gap: 16px; align-items: baseline; min-height: 28px; margin-bottom: 8px;
+  }
+  .readout .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .readout .meta { color: var(--text-secondary); }
+  .readout .key {
+    display: inline-block; width: 14px; height: 2px; background: var(--series-1);
+    vertical-align: middle; margin-right: 6px;
+  }
+  #chart { height: 480px; }
+  @media (max-width: 600px) { #chart { height: 320px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Strategy Analyzer</h1>
+
+  <div class="filters">
+    <label for="ticker">Index</label>
+    <select id="ticker"></select>
+
+    <label>Range</label>
+    <div class="range" id="range">
+      <button data-years="1">1Y</button>
+      <button data-years="5">5Y</button>
+      <button data-years="10">10Y</button>
+      <button data-years="0" aria-pressed="true">All</button>
+    </div>
+
+    <button id="scale" aria-pressed="false">Log scale</button>
+  </div>
+
+  <section class="card">
+    <div class="readout">
+      <span class="value" id="ro-value">&nbsp;</span>
+      <span class="meta"><span class="key"></span><span id="ro-name"></span></span>
+      <span class="meta" id="ro-date"></span>
+    </div>
+    <div id="chart"></div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+  const chartEl = document.getElementById("chart");
+  const chart = LightweightCharts.createChart(chartEl, {
+    autoSize: true,
+    layout: { background: { color: "transparent" }, textColor: css("--text-secondary"), fontFamily: "inherit" },
+    grid: { vertLines: { color: css("--grid") }, horzLines: { color: css("--grid") } },
+    rightPriceScale: { borderColor: css("--border") },
+    // minBarSpacing defaults to 0.5px, which stops 30 years of daily bars fitting on screen.
+    timeScale: { borderColor: css("--border"), timeVisible: false, minBarSpacing: 0.01 },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Magnet,
+      horzLine: { visible: false, labelVisible: false },
+      vertLine: { color: css("--text-secondary"), width: 1, style: LightweightCharts.LineStyle.Solid },
+    },
+    handleScale: { axisPressedMouseMove: false },
+  });
+  const series = chart.addLineSeries({
+    color: css("--series-1"), lineWidth: 2,
+    priceLineVisible: false, lastValueVisible: false,
+    crosshairMarkerRadius: 4,
+  });
+
+  let data = null;           // { symbol, name, dates, close }
+  let points = [];           // [{ time, value }]
+  let rangeYears = 0;
+
+  const roValue = document.getElementById("ro-value");
+  const roName = document.getElementById("ro-name");
+  const roDate = document.getElementById("ro-date");
+  const fmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function showReadout(point) {
+    if (!point) { roValue.textContent = " "; roDate.textContent = ""; return; }
+    roValue.textContent = fmt.format(point.value);
+    roDate.textContent = point.time;
+  }
+
+  chart.subscribeCrosshairMove((param) => {
+    const p = param.time ? param.seriesData.get(series) : null;
+    showReadout(p ?? points[points.length - 1]);
+  });
+
+  function applyRange() {
+    if (!points.length) return;
+    if (!rangeYears) { chart.timeScale().fitContent(); return; }
+    const last = points[points.length - 1].time;
+    const from = `${parseInt(last) - rangeYears}${last.slice(4)}`;
+    chart.timeScale().setVisibleRange({ from, to: last });
+  }
+
+  async function loadTicker(symbol) {
+    const res = await fetch(`/api/prices/${encodeURIComponent(symbol)}`);
+    data = await res.json();
+    points = data.dates.map((d, i) => ({ time: d, value: data.close[i] }));
+    series.setData(points);
+    roName.textContent = data.name;
+    showReadout(points[points.length - 1]);
+    applyRange();
+  }
+
+  const select = document.getElementById("ticker");
+  select.addEventListener("change", () => loadTicker(select.value));
+
+  document.getElementById("range").addEventListener("click", (e) => {
+    const btn = e.target.closest("button"); if (!btn) return;
+    for (const b of btn.parentElement.children) b.setAttribute("aria-pressed", b === btn);
+    rangeYears = Number(btn.dataset.years);
+    applyRange();
+  });
+
+  const scaleBtn = document.getElementById("scale");
+  scaleBtn.addEventListener("click", () => {
+    const log = scaleBtn.getAttribute("aria-pressed") !== "true";
+    scaleBtn.setAttribute("aria-pressed", log);
+    chart.priceScale("right").applyOptions({ mode: log ? LightweightCharts.PriceScaleMode.Logarithmic : LightweightCharts.PriceScaleMode.Normal });
+  });
+
+  (async () => {
+    const tickers = await (await fetch("/api/tickers")).json();
+    for (const t of tickers) {
+      const opt = document.createElement("option");
+      opt.value = t.symbol; opt.textContent = t.name;
+      select.appendChild(opt);
+    }
+    await loadTicker(select.value);
+  })();
+</script>
+</body>
+</html>

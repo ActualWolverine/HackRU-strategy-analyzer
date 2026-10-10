@@ -1,0 +1,6 @@
+yfinance
+pandas
+pyarrow
+requests
+fastapi
+uvicorn[standard]
