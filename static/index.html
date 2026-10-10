@@ -475,6 +475,7 @@
       const tr = el("tr", i.band === "typical" ? "typical" : "");
 
       const name = el("td", "", i.label);
+      if (i.formula) name.title = i.formula;
       name.appendChild(el("span", "dir", i.band === "typical" ? "typical" : `${i.band} · ${i.direction}`));
 
       const barCell = el("td", "bar-cell");
