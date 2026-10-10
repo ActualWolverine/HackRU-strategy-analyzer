@@ -12,9 +12,16 @@
     --border: #e1e0dc;
     --text-primary: #0b0b0b;
     --text-secondary: #52514e;
+    --text-muted: #8a8984;
     --grid: #ecebe7;
-    --series-1: #2a78d6;
+    --series-1: #2a78d6;    /* strategy / price line */
+    --series-2: #8a8984;    /* benchmark line (neutral) */
+    --pole-high: #2a78d6;   /* diverging: above-typical */
+    --pole-low: #eb6834;    /* diverging: below-typical */
+    --good: #008300;
+    --bad: #e34948;
     --accent-bg: #e3eefb;
+    --selection: rgba(42, 120, 214, 0.14);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -24,9 +31,16 @@
       --border: #2e2e2c;
       --text-primary: #f0efec;
       --text-secondary: #c3c2b7;
+      --text-muted: #8c8b85;
       --grid: #262625;
       --series-1: #3987e5;
+      --series-2: #8c8b85;
+      --pole-high: #3987e5;
+      --pole-low: #d95926;
+      --good: #2fa84f;
+      --bad: #e66767;
       --accent-bg: #1f3250;
+      --selection: rgba(57, 135, 229, 0.18);
     }
   }
   :root[data-theme="dark"] {
@@ -36,9 +50,16 @@
     --border: #2e2e2c;
     --text-primary: #f0efec;
     --text-secondary: #c3c2b7;
+    --text-muted: #8c8b85;
     --grid: #262625;
     --series-1: #3987e5;
+    --series-2: #8c8b85;
+    --pole-high: #3987e5;
+    --pole-low: #d95926;
+    --good: #2fa84f;
+    --bad: #e66767;
     --accent-bg: #1f3250;
+    --selection: rgba(57, 135, 229, 0.18);
   }
 
   * { box-sizing: border-box; }
@@ -50,38 +71,90 @@
   }
   main { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
   h1 { font-size: 20px; font-weight: 600; margin: 0 0 16px; }
+  h2 { font-size: 16px; font-weight: 600; margin: 0; }
+  h3 { font-size: 14px; font-weight: 600; margin: 0 0 8px; }
 
   .filters { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 16px; }
-  .filters label { color: var(--text-secondary); font-size: 13px; }
-  select, button {
+  label { color: var(--text-secondary); font-size: 13px; }
+  select, button, input {
     font: inherit; color: var(--text-primary);
     background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 6px; padding: 6px 10px; cursor: pointer;
+    border-radius: 6px; padding: 6px 10px;
   }
+  select, button { cursor: pointer; }
+  input[type=number] { width: 110px; }
   .range { display: flex; gap: 4px; }
-  .range button[aria-pressed="true"] { background: var(--accent-bg); border-color: var(--series-1); }
+  button[aria-pressed="true"] { background: var(--accent-bg); border-color: var(--series-1); }
+  button.primary { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .hint { color: var(--text-muted); font-size: 13px; }
+  .error { color: var(--bad); }
 
   .card {
     background: var(--surface-1); border: 1px solid var(--border);
-    border-radius: 10px; padding: 16px;
+    border-radius: 10px; padding: 16px; margin-bottom: 16px;
   }
-  .readout {
-    display: flex; gap: 16px; align-items: baseline; min-height: 28px; margin-bottom: 8px;
-  }
+  .readout { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; min-height: 28px; margin-bottom: 8px; }
   .readout .value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .readout .meta { color: var(--text-secondary); }
-  .readout .key {
-    display: inline-block; width: 14px; height: 2px; background: var(--series-1);
-    vertical-align: middle; margin-right: 6px;
+  .key { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 6px; background: var(--series-1); }
+  .key.bench { background: var(--series-2); }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+  .chart-wrap { position: relative; }
+  .chart { height: 480px; }
+  #bt-chart { height: 400px; }
+  #excess-chart { height: 180px; }
+  @media (max-width: 600px) { .chart, #bt-chart { height: 320px; } #excess-chart { height: 140px; } }
+  .subpane-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; margin: 12px 0 4px; }
+  .subpane-head h3 { margin: 0; }
+  .subpane-head .range button { padding: 2px 8px; font-size: 12px; }
+  .chart-wrap.selecting { cursor: crosshair; }
+  #bt-shade { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; }
+  #selection {
+    position: absolute; top: 0; bottom: 28px; display: none; pointer-events: none;
+    background: var(--selection);
+    border-left: 1px solid var(--series-1); border-right: 1px solid var(--series-1);
   }
-  #chart { height: 480px; }
-  @media (max-width: 600px) { #chart { height: 320px; } }
+
+  /* Strategy form */
+  .form-row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: flex-end; margin-top: 12px; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .desc { color: var(--text-secondary); margin: 8px 0 0; }
+
+  /* Panels */
+  .panel-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; margin-bottom: 12px; }
+  .panel-head .sub { color: var(--text-secondary); }
+  .summary { margin: 0 0 16px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-weight: 500; color: var(--text-secondary); font-size: 12px; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  th.num { text-align: right; }
+  td { padding: 8px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+  td.num { text-align: right; white-space: nowrap; }
+  td .dir { color: var(--text-secondary); font-size: 12px; display: block; }
+  .bar-cell { width: 220px; }
+  .bar { position: relative; height: 10px; }
+  .bar::before { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--border); }
+  .bar .fill { position: absolute; top: 0; height: 100%; border-radius: 4px; }
+  .bar .fill.high { background: var(--pole-high); left: 50%; }
+  .bar .fill.low { background: var(--pole-low); right: 50%; }
+  tr.typical td { color: var(--text-muted); }
+  tr.typical td .dir { color: var(--text-muted); }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; color: var(--text-secondary); font-size: 12px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+  @media (max-width: 700px) { .hide-sm { display: none; } .bar-cell { width: 120px; } }
+  .metrics { margin-top: 12px; }
+  .metrics table { max-width: 520px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip { border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--text-secondary); }
+  .chip b { color: var(--text-primary); font-weight: 500; }
 </style>
 </head>
 <body>
 <main>
   <h1>Strategy Analyzer</h1>
 
+  <!-- ============ Price chart ============ -->
   <div class="filters">
     <label for="ticker">Index</label>
     <select id="ticker"></select>
@@ -95,6 +168,8 @@
     </div>
 
     <button id="scale" aria-pressed="false">Log scale</button>
+    <button id="select-mode" aria-pressed="false">Select region</button>
+    <span class="hint" id="select-hint"></span>
   </div>
 
   <section class="card">
@@ -103,50 +178,173 @@
       <span class="meta"><span class="key"></span><span id="ro-name"></span></span>
       <span class="meta" id="ro-date"></span>
     </div>
-    <div id="chart"></div>
+    <div class="chart-wrap" id="chart-wrap">
+      <div id="chart" class="chart"></div>
+      <div id="selection"></div>
+    </div>
+  </section>
+
+  <section class="card" id="conditions" hidden>
+    <div class="panel-head">
+      <h2>Market conditions</h2>
+      <span class="sub" id="cond-range"></span>
+      <button id="cond-clear">Clear</button>
+    </div>
+    <p class="summary" id="cond-summary"></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Indicator</th>
+          <th>Vs. rest of history</th>
+          <th class="num">In period</th>
+          <th class="num hide-sm">Typical</th>
+          <th class="num hide-sm">Percentile</th>
+        </tr>
+      </thead>
+      <tbody id="cond-rows"></tbody>
+    </table>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--pole-high)"></i>Higher than usual</span>
+      <span><i class="swatch" style="background:var(--pole-low)"></i>Lower than usual</span>
+      <span>Bar length = how consistently the period differs from the rest of history (rank-biserial effect)</span>
+    </div>
+  </section>
+
+  <!-- ============ Strategy backtest ============ -->
+  <section class="card">
+    <h2>Backtest a strategy</h2>
+    <div class="form-row">
+      <div class="field">
+        <label for="strategy">Strategy</label>
+        <select id="strategy"></select>
+      </div>
+      <div class="field">
+        <label for="benchmark">Benchmark</label>
+        <select id="benchmark"></select>
+      </div>
+    </div>
+    <p class="desc" id="strategy-desc"></p>
+    <div class="form-row" id="params"></div>
+    <div class="form-row">
+      <button class="primary" id="run">Run backtest</button>
+      <span class="hint" id="run-status"></span>
+    </div>
+  </section>
+
+  <section class="card" id="bt" hidden>
+    <div class="panel-head">
+      <h2 id="bt-title"></h2>
+      <span class="sub" id="bt-range"></span>
+      <button id="bt-normalize" aria-pressed="false" title="Divide the strategy by the benchmark so the benchmark is a flat line at 100">Relative to benchmark</button>
+    </div>
+    <div class="readout">
+      <span class="meta"><span class="key"></span>Strategy <b id="bt-ro-strat"></b></span>
+      <span class="meta"><span class="key bench"></span><span id="bt-bench-name">Benchmark</span> <b id="bt-ro-bench"></b></span>
+      <span class="meta" id="bt-ro-date"></span>
+    </div>
+    <div class="chart-wrap"><div id="bt-chart"></div><canvas id="bt-shade"></canvas></div>
+    <div class="subpane-head">
+      <h3>Excess return vs. benchmark</h3>
+      <div class="range" id="excess-window">
+        <button data-days="21">1M</button>
+        <button data-days="63" aria-pressed="true">3M</button>
+        <button data-days="126">6M</button>
+        <button data-days="252">1Y</button>
+      </div>
+      <span class="meta" id="excess-ro"></span>
+    </div>
+    <div class="chart-wrap"><div id="excess-chart"></div></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--good);opacity:.35"></i>Outperforming (top third of rolling 3-month return vs. benchmark)</span>
+      <span><i class="swatch" style="background:var(--bad);opacity:.35"></i>Underperforming (bottom third)</span>
+      <span id="bt-scale-note">Unshaded = roughly matching. Growth of 100, log scale.</span>
+    </div>
+    <div class="chips" id="bt-diag"></div>
+    <div class="metrics">
+      <table>
+        <thead><tr><th></th><th class="num">Strategy</th><th class="num" id="bt-metrics-bench">Benchmark</th></tr></thead>
+        <tbody id="bt-metrics"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card" id="bt-conditions" hidden>
+    <h2 style="margin-bottom:12px">What the market looked like</h2>
+    <div class="two-col">
+      <div>
+        <h3><i class="swatch" style="background:var(--good)"></i>When the strategy outperformed</h3>
+        <p class="summary" id="out-summary"></p>
+        <table>
+          <thead><tr><th>Indicator</th><th>Vs. other days</th><th class="num">Median</th><th class="num hide-sm">Pctile</th></tr></thead>
+          <tbody id="out-rows"></tbody>
+        </table>
+      </div>
+      <div>
+        <h3><i class="swatch" style="background:var(--bad)"></i>When the strategy underperformed</h3>
+        <p class="summary" id="under-summary"></p>
+        <table>
+          <thead><tr><th>Indicator</th><th>Vs. other days</th><th class="num">Median</th><th class="num hide-sm">Pctile</th></tr></thead>
+          <tbody id="under-rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--pole-high)"></i>Higher than on other days</span>
+      <span><i class="swatch" style="background:var(--pole-low)"></i>Lower than on other days</span>
+    </div>
   </section>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script>
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const $ = (id) => document.getElementById(id);
+  const LW = LightweightCharts;
 
-  const chartEl = document.getElementById("chart");
-  const chart = LightweightCharts.createChart(chartEl, {
-    autoSize: true,
-    layout: { background: { color: "transparent" }, textColor: css("--text-secondary"), fontFamily: "inherit" },
-    grid: { vertLines: { color: css("--grid") }, horzLines: { color: css("--grid") } },
-    rightPriceScale: { borderColor: css("--border") },
-    // minBarSpacing defaults to 0.5px, which stops 30 years of daily bars fitting on screen.
-    timeScale: { borderColor: css("--border"), timeVisible: false, minBarSpacing: 0.01 },
-    crosshair: {
-      mode: LightweightCharts.CrosshairMode.Magnet,
-      horzLine: { visible: false, labelVisible: false },
-      vertLine: { color: css("--text-secondary"), width: 1, style: LightweightCharts.LineStyle.Solid },
-    },
-    handleScale: { axisPressedMouseMove: false },
-  });
+  const fmtPrice = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtValue = (v, fmt) => {
+    if (fmt === "pct") return `${(v * 100).toFixed(1)}%`;
+    if (fmt === "level") return `${v >= 0 ? "+" : ""}${v.toFixed(2)}`;
+    return v.toFixed(2);
+  };
+  const ordinal = (n) => { n = Math.round(n); const s = ["th","st","nd","rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+
+  function chartOptions() {
+    return {
+      autoSize: true,
+      layout: { background: { color: "transparent" }, textColor: css("--text-secondary"), fontFamily: "inherit" },
+      grid: { vertLines: { color: css("--grid") }, horzLines: { color: css("--grid") } },
+      rightPriceScale: { borderColor: css("--border") },
+      // minBarSpacing defaults to 0.5px, which stops 30 years of daily bars fitting on screen.
+      timeScale: { borderColor: css("--border"), timeVisible: false, minBarSpacing: 0.01 },
+      crosshair: {
+        mode: LW.CrosshairMode.Magnet,
+        horzLine: { visible: false, labelVisible: false },
+        vertLine: { color: css("--text-secondary"), width: 1, style: LW.LineStyle.Solid },
+      },
+      handleScale: { axisPressedMouseMove: false },
+    };
+  }
+
+  // =====================================================================
+  // Price chart
+  // =====================================================================
+  const chart = LW.createChart($("chart"), chartOptions());
   const series = chart.addLineSeries({
     color: css("--series-1"), lineWidth: 2,
-    priceLineVisible: false, lastValueVisible: false,
-    crosshairMarkerRadius: 4,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 4,
   });
 
   let data = null;           // { symbol, name, dates, close }
   let points = [];           // [{ time, value }]
   let rangeYears = 0;
 
-  const roValue = document.getElementById("ro-value");
-  const roName = document.getElementById("ro-name");
-  const roDate = document.getElementById("ro-date");
-  const fmt = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
   function showReadout(point) {
-    if (!point) { roValue.textContent = " "; roDate.textContent = ""; return; }
-    roValue.textContent = fmt.format(point.value);
-    roDate.textContent = point.time;
+    if (!point) { $("ro-value").textContent = " "; $("ro-date").textContent = ""; return; }
+    $("ro-value").textContent = fmtPrice.format(point.value);
+    $("ro-date").textContent = point.time;
   }
-
   chart.subscribeCrosshairMove((param) => {
     const p = param.time ? param.seriesData.get(series) : null;
     showReadout(p ?? points[points.length - 1]);
@@ -165,36 +363,455 @@
     data = await res.json();
     points = data.dates.map((d, i) => ({ time: d, value: data.close[i] }));
     series.setData(points);
-    roName.textContent = data.name;
+    $("ro-name").textContent = data.name;
     showReadout(points[points.length - 1]);
     applyRange();
   }
 
-  const select = document.getElementById("ticker");
+  const select = $("ticker");
   select.addEventListener("change", () => loadTicker(select.value));
 
-  document.getElementById("range").addEventListener("click", (e) => {
+  $("range").addEventListener("click", (e) => {
     const btn = e.target.closest("button"); if (!btn) return;
     for (const b of btn.parentElement.children) b.setAttribute("aria-pressed", b === btn);
     rangeYears = Number(btn.dataset.years);
     applyRange();
   });
 
-  const scaleBtn = document.getElementById("scale");
+  const scaleBtn = $("scale");
   scaleBtn.addEventListener("click", () => {
     const log = scaleBtn.getAttribute("aria-pressed") !== "true";
     scaleBtn.setAttribute("aria-pressed", log);
-    chart.priceScale("right").applyOptions({ mode: log ? LightweightCharts.PriceScaleMode.Logarithmic : LightweightCharts.PriceScaleMode.Normal });
+    chart.priceScale("right").applyOptions({ mode: log ? LW.PriceScaleMode.Logarithmic : LW.PriceScaleMode.Normal });
   });
 
+  // ---------- Region selection ----------
+  const wrap = $("chart-wrap");
+  const selEl = $("selection");
+  const modeBtn = $("select-mode");
+  let selectMode = false;
+  let dragStart = null;                 // x coordinate while dragging
+  let selection = null;                 // { start, end } as date strings
+
+  function setSelectMode(on) {
+    selectMode = on;
+    modeBtn.setAttribute("aria-pressed", on);
+    wrap.classList.toggle("selecting", on);
+    chart.applyOptions({ handleScroll: !on, handleScale: !on });
+    $("select-hint").textContent = on ? "Drag across the chart to pick a period" : "";
+  }
+  modeBtn.addEventListener("click", () => setSelectMode(!selectMode));
+
+  const xOf = (e) => e.clientX - wrap.getBoundingClientRect().left;
+  const timeAt = (x) => chart.timeScale().coordinateToTime(x);
+
+  function drawSelectionBox(x1, x2) {
+    selEl.style.display = "block";
+    selEl.style.left = `${Math.min(x1, x2)}px`;
+    selEl.style.width = `${Math.abs(x2 - x1)}px`;
+  }
+
+  // timeToCoordinate only knows dates that exist in the series, so snap a date
+  // (e.g. a holiday) to the first trading day on or after it.
+  function snapToTradingDay(date) {
+    if (!data) return date;
+    const i = data.dates.findIndex(d => d >= date);
+    return i === -1 ? data.dates[data.dates.length - 1] : data.dates[i];
+  }
+
+  // Keep the highlight attached to its dates as the user pans/zooms.
+  function redrawSelection() {
+    if (!selection) { selEl.style.display = "none"; return; }
+    const ts = chart.timeScale();
+    const x1 = ts.timeToCoordinate(snapToTradingDay(selection.start));
+    const x2 = ts.timeToCoordinate(snapToTradingDay(selection.end));
+    if (x1 === null && x2 === null) { selEl.style.display = "none"; return; }
+    const w = wrap.clientWidth;
+    drawSelectionBox(x1 ?? 0, x2 ?? w);
+  }
+  chart.timeScale().subscribeVisibleLogicalRangeChange(redrawSelection);
+
+  wrap.addEventListener("pointerdown", (e) => {
+    if (!selectMode || e.button !== 0) return;
+    dragStart = xOf(e);
+    wrap.setPointerCapture(e.pointerId);
+    drawSelectionBox(dragStart, dragStart);
+  });
+  wrap.addEventListener("pointermove", (e) => {
+    if (dragStart === null) return;
+    drawSelectionBox(dragStart, xOf(e));
+  });
+  wrap.addEventListener("pointerup", (e) => {
+    if (dragStart === null) return;
+    const x1 = dragStart, x2 = xOf(e);
+    dragStart = null;
+    const t1 = timeAt(Math.min(x1, x2)), t2 = timeAt(Math.max(x1, x2));
+    if (!t1 || !t2 || t1 === t2) { redrawSelection(); return; }
+    selection = { start: t1, end: t2 };
+    redrawSelection();
+    setSelectMode(false);
+    loadConditions(selection);
+  });
+
+  $("cond-clear").addEventListener("click", () => {
+    selection = null;
+    redrawSelection();
+    $("conditions").hidden = true;
+  });
+
+  // =====================================================================
+  // Conditions tables (shared by region select and backtest)
+  // =====================================================================
+  function summarize(indicators, subject) {
+    const notable = indicators.filter(i => i.band !== "typical").slice(0, 3);
+    if (!notable.length) return `${subject}, every indicator looked typical.`;
+    const parts = notable.map(i => `${i.label} was ${i.direction} (${ordinal(i.percentile)} percentile)`);
+    return `${subject}, ${parts.join("; ")}.`;
+  }
+
+  function renderConditions(tbody, indicators, { showTypical = true } = {}) {
+    tbody.replaceChildren();
+    for (const i of indicators) {
+      const tr = el("tr", i.band === "typical" ? "typical" : "");
+
+      const name = el("td", "", i.label);
+      name.appendChild(el("span", "dir", i.band === "typical" ? "typical" : `${i.band} · ${i.direction}`));
+
+      const barCell = el("td", "bar-cell");
+      const bar = el("div", "bar");
+      const fill = el("div", `fill ${i.effect >= 0 ? "high" : "low"}`);
+      fill.style.width = `${Math.abs(i.effect) * 50}%`;
+      bar.appendChild(fill);
+      barCell.appendChild(bar);
+
+      const inside = el("td", "num", fmtValue(i.inside_median, i.fmt));
+      tr.append(name, barCell, inside);
+      if (showTypical) tr.appendChild(el("td", "num hide-sm", fmtValue(i.baseline_median, i.fmt)));
+      tr.appendChild(el("td", "num hide-sm", ordinal(i.percentile)));
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function loadConditions({ start, end }) {
+    const res = await fetch(`/api/conditions?start=${start}&end=${end}`);
+    const r = await res.json();
+    $("cond-range").textContent = `${r.start} to ${r.end} · ${r.n_days} trading days`;
+    $("cond-summary").textContent = summarize(r.indicators, "Compared with the rest of history");
+    renderConditions($("cond-rows"), r.indicators);
+    $("conditions").hidden = false;
+    $("conditions").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  // =====================================================================
+  // Strategy form
+  // =====================================================================
+  let strategyList = [];
+
+  function renderParams(spec) {
+    const box = $("params");
+    box.replaceChildren();
+    for (const p of spec.params) {
+      const field = el("div", "field");
+      const label = el("label", "", p.label);
+      label.htmlFor = `p-${p.name}`;
+      let input;
+      if (p.type === "choice") {
+        input = el("select");
+        for (const c of p.choices) {
+          const opt = el("option", "", c); opt.value = c; opt.selected = c === p.default;
+          input.appendChild(opt);
+        }
+      } else {
+        input = el("input");
+        input.type = "number";
+        input.value = p.default;
+        if (p.min !== undefined) input.min = p.min;
+        if (p.max !== undefined) input.max = p.max;
+        input.step = p.type === "int" ? 1 : "any";
+      }
+      input.id = `p-${p.name}`;
+      input.dataset.name = p.name;
+      field.append(label, input);
+      box.appendChild(field);
+    }
+  }
+
+  function selectStrategy(key) {
+    const spec = strategyList.find(s => s.key === key);
+    $("strategy-desc").textContent = spec.description;
+    $("benchmark").value = spec.benchmark;
+    renderParams(spec);
+  }
+
+  async function loadStrategies() {
+    const r = await (await fetch("/api/strategies")).json();
+    strategyList = r.strategies;
+    const sel = $("strategy");
+    for (const s of r.strategies) {
+      const opt = el("option", "", s.name); opt.value = s.key; sel.appendChild(opt);
+    }
+    const bench = $("benchmark");
+    for (const b of r.benchmarks) {
+      const opt = el("option", "", b === "CASH" ? "Cash (absolute return)" : b); opt.value = b; bench.appendChild(opt);
+    }
+    sel.addEventListener("change", () => selectStrategy(sel.value));
+    selectStrategy(sel.value);
+  }
+
+  $("run").addEventListener("click", async () => {
+    const params = {};
+    for (const input of $("params").querySelectorAll("[data-name]")) params[input.dataset.name] = input.value;
+    const body = { strategy: $("strategy").value, benchmark: $("benchmark").value, params };
+    const btn = $("run"), status = $("run-status");
+    btn.disabled = true; status.className = "hint"; status.textContent = "Computing…";
+    try {
+      const res = await fetch("/api/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const r = await res.json();
+      if (!res.ok) throw new Error(r.detail || res.statusText);
+      status.textContent = "";
+      showBacktest(r);
+    } catch (e) {
+      status.className = "hint error"; status.textContent = e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // =====================================================================
+  // Backtest chart + results
+  // =====================================================================
+  // Both panes share a fixed price-scale width so their plot areas line up and
+  // the same logical index sits at the same x in each.
+  const PRICE_SCALE_WIDTH = 72;
+  const btChart = LW.createChart($("bt-chart"), chartOptions());
+  btChart.priceScale("right").applyOptions({ mode: LW.PriceScaleMode.Logarithmic, minimumWidth: PRICE_SCALE_WIDTH });
+  // Regime shading is drawn on an overlay canvas from contiguous runs, so it
+  // stays translucent at any zoom (per-day bars would overdraw when < 1px wide).
+  const shade = $("bt-shade");
+  function drawShading() {
+    if (!btData) return;
+    const pane = $("bt-chart");
+    const width = pane.clientWidth - btChart.priceScale("right").width();
+    const height = pane.clientHeight - btChart.timeScale().height();
+    const dpr = window.devicePixelRatio || 1;
+    shade.width = width * dpr; shade.height = height * dpr;
+    shade.style.width = `${width}px`; shade.style.height = `${height}px`;
+    const ctx = shade.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
+    const colors = { outperform: hexToRgba(css("--good"), 0.2), underperform: hexToRgba(css("--bad"), 0.2) };
+    const ts = btChart.timeScale();
+    // logicalToCoordinate works for off-screen indices too, unlike timeToCoordinate,
+    // but it returns 0 for non-integer indices, so pad to bar edges by hand.
+    const half = (ts.logicalToCoordinate(1) - ts.logicalToCoordinate(0)) / 2;
+    for (const run of btData.regimes) {
+      const color = colors[run.label];
+      if (!color) continue;
+      const x1 = ts.logicalToCoordinate(btData.dateIndex.get(run.start)) - half;
+      const x2 = ts.logicalToCoordinate(btData.dateIndex.get(run.end)) + half;
+      if (!Number.isFinite(x1) || !Number.isFinite(x2) || x2 < 0 || x1 > width) continue;
+      ctx.fillStyle = color;
+      ctx.fillRect(Math.max(0, x1), 0, Math.min(width, x2) - Math.max(0, x1), height);
+    }
+  }
+  // Redraw on pan/zoom, and on chart resize: a width change alone keeps the
+  // logical range (so no range event fires) but moves every coordinate.
+  btChart.timeScale().subscribeVisibleLogicalRangeChange(drawShading);
+  btChart.timeScale().subscribeSizeChange(drawShading);
+  const benchSeries = btChart.addLineSeries({ color: css("--series-2"), lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 4 });
+  const stratSeries = btChart.addLineSeries({ color: css("--series-1"), lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 4 });
+
+  let btData = null;
+  let normalized = false;   // true: plot strategy / benchmark, so the benchmark is flat at 100
+
+  const hexToRgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`; };
+
+  const relative = (i) => 100 * btData.strategy_equity[i] / btData.benchmark_equity[i];
+
+  function setBtSeries() {
+    const r = btData;
+    if (normalized) {
+      stratSeries.setData(r.dates.map((d, i) => ({ time: d, value: relative(i) })));
+      benchSeries.setData(r.dates.map(d => ({ time: d, value: 100 })));
+    } else {
+      stratSeries.setData(r.dates.map((d, i) => ({ time: d, value: r.strategy_equity[i] })));
+      benchSeries.setData(r.dates.map((d, i) => ({ time: d, value: r.benchmark_equity[i] })));
+    }
+    $("bt-scale-note").textContent = normalized
+      ? "Unshaded = roughly matching. Strategy ÷ benchmark × 100: rising = beating it, falling = lagging. Log scale."
+      : "Unshaded = roughly matching. Growth of 100, log scale.";
+  }
+
+  function showBtReadout(i) {
+    if (!btData || i == null) return;
+    if (normalized) {
+      $("bt-ro-strat").textContent = `${signedPct(relative(i) - 100)} vs. benchmark`;
+    } else {
+      $("bt-ro-strat").textContent = fmtPrice.format(btData.strategy_equity[i]);
+    }
+    $("bt-ro-bench").textContent = fmtPrice.format(btData.benchmark_equity[i]);
+    $("bt-ro-date").textContent = btData.dates[i];
+  }
+
+  // ---------- Excess-return pane ----------
+  // Trailing N-day log return of the strategy minus the benchmark's: the slope
+  // of the "relative to benchmark" line. Trailing (not centred like the regime
+  // labels) so each value only uses data up to that day.
+  let excessWindow = 63;
+  const excessChart = LW.createChart($("excess-chart"), {
+    ...chartOptions(),
+    rightPriceScale: { borderColor: css("--border"), minimumWidth: PRICE_SCALE_WIDTH },
+  });
+  // Signed percent; rounds before choosing the sign so tiny negatives don't print "-0.0%".
+  const signedPct = (v) => { const r = Number(v.toFixed(1)) || 0; return `${r >= 0 ? "+" : ""}${r.toFixed(1)}%`; };
+  const pctFormat = { type: "custom", minMove: 0.01, formatter: signedPct };
+  const excessSeries = excessChart.addBaselineSeries({
+    baseValue: { type: "price", price: 0 },
+    topLineColor: css("--good"), topFillColor1: hexToRgba(css("--good"), 0.35), topFillColor2: hexToRgba(css("--good"), 0.05),
+    bottomLineColor: css("--bad"), bottomFillColor1: hexToRgba(css("--bad"), 0.05), bottomFillColor2: hexToRgba(css("--bad"), 0.35),
+    lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerRadius: 4,
+    priceFormat: pctFormat,
+  });
+  excessSeries.createPriceLine({ price: 0, color: css("--text-muted"), lineWidth: 1, lineStyle: LW.LineStyle.Solid, axisLabelVisible: false });
+
+  let excessValues = [];
+  function computeExcess() {
+    const r = btData, w = excessWindow;
+    excessValues = r.dates.map((_, i) => i < w ? null :
+      100 * (Math.log(r.strategy_equity[i] / r.strategy_equity[i - w]) - Math.log(r.benchmark_equity[i] / r.benchmark_equity[i - w])));
+    // Whitespace items (time only) keep both panes on identical logical indices.
+    excessSeries.setData(r.dates.map((d, i) => excessValues[i] === null ? { time: d } : { time: d, value: excessValues[i] }));
+  }
+
+  const windowLabel = () => $("excess-window").querySelector('[aria-pressed="true"]').textContent;
+  function showExcessReadout(i) {
+    const v = excessValues[i];
+    $("excess-ro").textContent = v == null ? "" : `${windowLabel()}: ${signedPct(v)} vs. benchmark`;
+  }
+
+  $("excess-window").addEventListener("click", (e) => {
+    const btn = e.target.closest("button"); if (!btn) return;
+    for (const b of btn.parentElement.children) b.setAttribute("aria-pressed", b === btn);
+    excessWindow = Number(btn.dataset.days);
+    if (!btData) return;
+    computeExcess();
+    showExcessReadout(btData.dates.length - 1);
+  });
+
+  // Keep the two panes' zoom/pan and crosshair in step.
+  let syncing = false;
+  function linkRange(from, to) {
+    from.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+      if (syncing || !range) return;
+      syncing = true;
+      to.timeScale().setVisibleLogicalRange(range);
+      syncing = false;
+    });
+  }
+  linkRange(btChart, excessChart);
+  linkRange(excessChart, btChart);
+
+  // Hovering either pane updates both readouts and mirrors the crosshair onto
+  // the other pane. The flag stops a mirrored move from echoing back.
+  let mirroring = false;
+  function onBtCrosshair(param, other) {
+    if (!btData || mirroring) return;
+    const i = param.time ? btData.dateIndex.get(param.time) : undefined;
+    const idx = i ?? btData.dates.length - 1;
+    showBtReadout(idx);
+    showExcessReadout(idx);
+    mirroring = true;
+    if (i === undefined) other.chart.clearCrosshairPosition();
+    else {
+      const v = other.value(i);
+      if (v == null) other.chart.clearCrosshairPosition();
+      else other.chart.setCrosshairPosition(v, param.time, other.series);
+    }
+    mirroring = false;
+  }
+  const topPane = { chart: btChart, series: stratSeries, value: (i) => normalized ? relative(i) : btData.strategy_equity[i] };
+  const bottomPane = { chart: excessChart, series: excessSeries, value: (i) => excessValues[i] };
+  btChart.subscribeCrosshairMove((param) => onBtCrosshair(param, bottomPane));
+  excessChart.subscribeCrosshairMove((param) => onBtCrosshair(param, topPane));
+
+  $("bt-normalize").addEventListener("click", (e) => {
+    normalized = !normalized;
+    e.currentTarget.setAttribute("aria-pressed", normalized);
+    if (!btData) return;
+    // setData keeps the visible time range, so the user's zoom survives the toggle.
+    setBtSeries();
+    showBtReadout(btData.dates.length - 1);
+  });
+
+  function showBacktest(r) {
+    btData = r;
+    const benchLabel = r.benchmark === "CASH" ? "Cash" : r.benchmark;
+    $("bt-title").textContent = r.name;
+    $("bt-range").textContent = `${r.dates[0]} to ${r.dates[r.dates.length - 1]} · ${Object.entries(r.params).map(([k, v]) => `${k}=${v}`).join(", ")}`;
+    $("bt-bench-name").textContent = benchLabel;
+    $("bt-metrics-bench").textContent = benchLabel;
+
+    r.dateIndex = new Map(r.dates.map((d, i) => [d, i]));
+    // The chart has no size while its card is hidden, so reveal it before laying out data.
+    $("bt").hidden = false;
+    setBtSeries();
+    computeExcess();
+    requestAnimationFrame(() => { btChart.timeScale().fitContent(); drawShading(); });
+    setTimeout(drawShading, 100);  // belt and braces for the first reveal
+    showBtReadout(r.dates.length - 1);
+    showExcessReadout(r.dates.length - 1);
+
+    // Diagnostics chips
+    const chips = $("bt-diag");
+    chips.replaceChildren();
+    for (const [k, v] of Object.entries(r.diagnostics)) {
+      const c = el("span", "chip", `${k}: `); c.appendChild(el("b", "", String(v))); chips.appendChild(c);
+    }
+
+    // Metrics
+    const rows = [["CAGR", "cagr", "pct"], ["Total return", "total_return", "pct"], ["Volatility (annual)", "volatility", "pct"], ["Sharpe", "sharpe", "ratio"], ["Max drawdown", "max_drawdown", "pct"]];
+    const tbody = $("bt-metrics");
+    tbody.replaceChildren();
+    for (const [label, key, fmt] of rows) {
+      const tr = el("tr");
+      tr.append(el("td", "", label), el("td", "num", fmtValue(r.metrics.strategy[key], fmt)), el("td", "num", fmtValue(r.metrics.benchmark[key], fmt)));
+      tbody.appendChild(tr);
+    }
+
+    // Conditions per regime
+    $("out-summary").textContent = summarize(r.conditions.outperform, "On days it outperformed");
+    $("under-summary").textContent = summarize(r.conditions.underperform, "On days it underperformed");
+    renderConditions($("out-rows"), r.conditions.outperform, { showTypical: false });
+    renderConditions($("under-rows"), r.conditions.underperform, { showTypical: false });
+    $("bt-conditions").hidden = false;
+    if (!location.search.includes("noscroll")) $("bt").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // =====================================================================
+  // Boot
+  // =====================================================================
   (async () => {
     const tickers = await (await fetch("/api/tickers")).json();
     for (const t of tickers) {
-      const opt = document.createElement("option");
-      opt.value = t.symbol; opt.textContent = t.name;
-      select.appendChild(opt);
+      const opt = el("option", "", t.name); opt.value = t.symbol; select.appendChild(opt);
     }
-    await loadTicker(select.value);
+    await Promise.all([loadTicker(select.value), loadStrategies()]);
+
+    // ?start=YYYY-MM-DD&end=YYYY-MM-DD preselects a region (shareable links).
+    const params = new URLSearchParams(location.search);
+    if (params.get("start") && params.get("end")) {
+      selection = { start: params.get("start"), end: params.get("end") };
+      redrawSelection();
+      loadConditions(selection);
+    }
+    // ?run=<strategy key> runs that strategy with defaults on load.
+    // ?normalize=1 starts the backtest chart relative to the benchmark.
+    if (params.get("normalize") === "1") $("bt-normalize").click();
+    if (params.get("run")) {
+      $("strategy").value = params.get("run");
+      selectStrategy(params.get("run"));
+      $("run").click();
+    }
   })();
 </script>
 </body>

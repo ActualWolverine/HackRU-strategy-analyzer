@@ -4,3 +4,4 @@ pyarrow
 requests
 fastapi
 uvicorn[standard]
+statsmodels

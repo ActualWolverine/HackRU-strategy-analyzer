@@ -17,7 +17,9 @@ DATA_DIR = Path(__file__).parent / "data"
 
 TICKERS = [
     # Broad market
-    "^GSPC", "SPY", "QQQ", "IWM", "DIA",
+    "^GSPC", "SPY", "IVV", "QQQ", "IWM", "DIA",
+    # International (EFA 2001, EEM 2003)
+    "EFA", "EEM",
     # Rates / safety
     "TLT", "IEF", "GLD",
     # Volatility (VIX3M starts 2006; used for VIX term structure)
