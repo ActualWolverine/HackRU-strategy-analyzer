@@ -180,7 +180,7 @@ python bench.py
 - **Frontend:** TradingView lightweight-charts 4.2.0, loaded from jsDelivr.
 - **Strategy ideas:** the 15 built-in strategies are reimplementations of published or well-known strategies, with sources listed in `PUBLICATIONS` in `strategies.py`.
 
-**Built this weekend (Oct 10–11, 2026) by [YOUR NAME] and Muhammad Uddin**, with Claude Code as a coding assistant. Everything in this repository other than the libraries above:
+**Built this weekend (Oct 10–11, 2026) by Abdullah Khan and Muhammad Uddin**, with Claude Code as a coding assistant. Everything in this repository other than the libraries above:
 - data download, the Parquet snapshot, and the 13 market-state features (five of them, momentum 12-1, sector breadth, ADX, sector correlation and the yield curve, by Muhammad Uddin);
 - the backtest engine: next-day execution, cash and leverage accounting at the Fed funds rate, transaction costs on true turnover, CAPM alpha with Newey-West errors, and the before/after-publication split;
 - the regime segmenter and the rank-biserial conditions report;
