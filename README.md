@@ -26,7 +26,33 @@ Then open http://127.0.0.1:8000.
 
 ## Architecture
 
-**Engine → segmenter → features → report → dashboard.** The **engine** (`strategies.py`, `backtest.py`) runs a strategy, a function that turns a price table into daily target weights per ticker. It applies each day's weights to the *next* day's returns, credits idle cash with the daily Fed funds rate and charges it on leverage, and computes performance, CAPM alpha with Newey-West t-stats, and a before/after-publication split. The **segmenter** (`label_relative_performance` in `backtest.py`) labels every day outperform / match / underperform from the strategy's rolling 3-month return vs. the benchmark (terciles, merging runs shorter than 10 days), producing contiguous regimes. The **features** (`market_state.py`, from `download_data.py` / `data_loader.py`) are eight daily market-state indicators computed only from data available at each close: 20-day realized volatility, 60-day efficiency ratio, 60-day return autocorrelation, distance from the 200-day average, drawdown from the 52-week high, VIX/VIX3M, Baa−10Y credit spread, and the 3-month change in Fed funds. The **report** (`regime.py`) compares each regime's days against all other days per indicator using a rank-biserial effect size, ranks the indicators by how unusual the regime was, and returns it as JSON with the equity curves and alpha tables. The **dashboard** (`static/index.html`, TradingView lightweight-charts) shows the price chart with drag-to-select region analysis, the strategy form, the equity curve with regime shading and an optional "relative to benchmark" view, a synced rolling-excess-return pane, alpha tables, and an alpha leaderboard across all 15 built-in strategies.
+**Engine → segmenter → features → report → dashboard.** The **engine** (`strategies.py`, `backtest.py`) runs a strategy, a function that turns a price table into daily target weights per ticker. It applies each day's weights to the *next* day's returns, credits idle cash with the daily Fed funds rate and charges it on leverage, and computes performance, CAPM alpha with Newey-West t-stats, and a before/after-publication split. The **segmenter** (`label_relative_performance` in `backtest.py`) labels every day outperform / match / underperform from the strategy's rolling 3-month return vs. the benchmark (terciles, merging runs shorter than 10 days), producing contiguous regimes. The **features** (`market_state.py`, from `download_data.py` / `data_loader.py`) are thirteen daily market-state indicators computed only from data available at each close: 20-day realized volatility, 60-day efficiency ratio, 60-day return autocorrelation, distance from the 200-day average, drawdown from the 52-week high, 12-1 month momentum, sector breadth, 14-day ADX, 60-day sector correlation, VIX/VIX3M, Baa−10Y credit spread, the 10y−2y yield curve, and the 3-month change in Fed funds (the five newer ones are defined below). The **report** (`regime.py`) compares each regime's days against all other days per indicator using a rank-biserial effect size, ranks the indicators by how unusual the regime was, and returns it as JSON with the equity curves and alpha tables. The **dashboard** (`static/index.html`, TradingView lightweight-charts) shows the price chart with drag-to-select region analysis, the strategy form, the equity curve with regime shading and an optional "relative to benchmark" view, a synced rolling-excess-return pane, alpha tables, and an alpha leaderboard across all 15 built-in strategies.
+
+### Additional market-condition indicators
+
+The condition summaries compare indicator values on a selected period (or on
+outperforming/underperforming backtest days) with the rest of the available
+history. These are descriptive indicators, not a forecast. Calculations use
+daily data available by that day's close.
+
+The additional price indicators use data already stored in `data/prices.parquet`:
+
+| Indicator | Definition |
+| --- | --- |
+| 12-1 month momentum | `close[t-21] / close[t-252] - 1`; trailing 12-month price return excluding the latest 21 trading days. |
+| Sector breadth | Fraction of the nine tracked sector ETFs whose close is above its own 200-day simple moving average; only ETFs with valid values count. |
+| ADX (14 days) | Directional movement index based on 14-day Wilder-smoothed true range and positive/negative directional movement; ADX is a 14-day Wilder smoothing of `DX = 100 * abs(+DI - -DI) / (+DI + -DI)`. It measures trend strength, not direction. |
+| Sector correlation (60 days) | Mean of the rolling 60-day Pearson correlations between daily close-to-close returns for every pair of the nine sector ETFs. |
+| Treasury yield curve (10y-2y) | `DGS10 - DGS2`, in percentage points; also available as the FRED `T10Y2Y` series in `data/macro.parquet`. Negative values indicate an inverted curve. |
+
+The price-based momentum and ADX use the S&P 500 index (`^GSPC`); breadth
+and correlation use the nine sector ETFs. The Treasury yield curve uses the
+existing FRED macro cache and is descriptive context, not a same-day trading
+signal. Indicators are undefined until
+their required history is available (252 days for momentum, 200 days for
+breadth, and their rolling windows for ADX and correlation). Run
+`download_data.py` to refresh the cached market-state Parquet file after
+changing or downloading the source data.
 
 ## Result: 200-day SMA on SPY
 
@@ -65,9 +91,9 @@ The engine is vectorized: each strategy sees the whole price table, so no-look-a
 
 ## Performance
 
-**80,097 bars/sec**: a full SPY backtest (7,786 daily bars) in 97 ms, median of 20 runs.
+**27,447 bars/sec**: a full SPY backtest (7,786 daily bars) in 284 ms, median of 20 runs. Repeated runs on the same machine ranged from about 26,000 to 31,000 bars/sec.
 
-That covers everything the dashboard request does: strategy signals, the engine, metrics, three alpha regressions, regime segmentation and the market-conditions report. Data is loaded from Parquet once before timing.
+That covers everything the dashboard request does: strategy signals, the engine, metrics, three alpha regressions, regime segmentation and the market-conditions report over all 13 indicators. Data is loaded from Parquet once before timing.
 
 - CPU: AMD Ryzen AI 9 HX 370 (12 cores / 24 threads)
 - RAM: 31.1 GB
