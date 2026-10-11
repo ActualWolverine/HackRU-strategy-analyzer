@@ -72,11 +72,11 @@ You will be given FACTS computed by a backtesting engine, as a JSON object whose
 5. No investment advice, no predictions about the future, no hype. Write in plain language and define any jargon the first time you use it.
 6. Keep it compact: 3 to 5 sections, each one to three short paragraphs."""
 
-STRATEGY_TASK = """Explain this strategy's backtest to a learner. Cover: (a) what the strategy does, (b) which market indicators mattered most and why those make sense for this strategy's logic, (c) the kind of market it needs, (d) the kind of market in which it fails and the mechanism of failure, and (e) how to read the alpha result, including the before/after-publication comparison if present."""
+STRATEGY_TASK = """Explain this strategy's backtest to a learner. You may use up to 6 sections for this task. Cover: (a) what the strategy does, (b) which market indicators mattered most and why those make sense for this strategy's logic, (c) the kind of market it needs, (d) the kind of market in which it fails and the mechanism of failure, (e) how to read the alpha result, including the before/after-publication comparison if present, and (f) when it should have worked but didn't, from the expect_ facts: how often the favorable conditions were followed by underperformance anyway; whether a measured indicator separates those failures from the successes (and the mechanism, if so); whether the failures cluster late in history, which would point to something not in this data set, such as crowding after publication or changes in how the market trades, making the edge less reliable; and what a learner should take from that about trusting the favorable conditions in the future. Treat the expect_verdict fact as the engine's reading and do not name a specific hidden cause as fact, in the summary or in any section."""
 
 PERIOD_TASK = """Explain how this strategy's alpha evolved during the selected period, for a learner. You may use up to 8 sections for this task.
 
-Start with one overview section: how much alpha the strategy earned in the window, what alpha means here (use the alpha_definition fact), and how the market looked compared with the rest of history.
+Start with one overview section: how much alpha the strategy earned in the window, what alpha means here (use the alpha_definition fact), and how the market looked compared with the rest of history. If the window_expected fact says conditions were mostly favorable for this strategy while it underperformed, say plainly that this is a period where the strategy should have worked but didn't, and read the inflection points as its failure mechanism.
 
 Then give EACH inflection point in the facts (inflection_1, inflection_2, ...) its own section, in date order, with the heading "<date>: alpha <peaked|bottomed>". In each, explain:
 - what turned: how much alpha the strategy had been gaining or losing before, and after;
@@ -148,6 +148,70 @@ def _metric_facts(metrics: dict, benchmark: str, facts: dict) -> None:
     facts["max_drawdown"] = f"Worst peak-to-trough loss: strategy {_pct(s['max_drawdown'])}, {benchmark} {_pct(b['max_drawdown'])}."
 
 
+def _expectation_facts(e: dict | None, facts: dict) -> None:
+    """When conditions were favorable but the strategy underperformed (expectations.py)."""
+    if not e:
+        return
+    used = ", ".join(f"{i['label']} ({i['effect']:+.2f})" for i in e["score_indicators"])
+    if not e.get("available"):
+        facts["expect_verdict"] = e["verdict"]["text"]
+        return
+    facts["expect_method"] = (
+        f"'Favorable conditions' means the top third of a daily score built from the indicators that were notable on the "
+        f"strategy's outperforming days ({used}), each converted to its percentile over history and weighted by its "
+        f"effect, then averaged over the same {e['window']}-day window as the regime labels. The score was fit on the "
+        f"whole sample, so this hit rate is in-sample and flatters the conditions.")
+    facts["expect_hit_rate"] = (
+        f"Conditions were favorable on {e['favorable_days']:,} days. On those days the strategy was in an outperform regime "
+        f"{e['hit_rate']:.0%} of the time (base rate over all days {e['base_rate']:.0%}, so {e['lift']:.1f}x the odds) and in an "
+        f"underperform regime {e['miss_rate']:.0%} of the time. Favorable but underperformed: {e['failure_days']:,} days in "
+        f"{e['n_failure_runs']} stretches of 10+ days. Unfavorable but outperformed: {e['surprise_days']:,} days.")
+    for n, f in enumerate(e["failures"][:3], 1):
+        facts[f"expect_failure_{n}"] = (
+            f"Should have worked but didn't, {f['start']} to {f['end']} ({f['days']} days, conditions score {f['score']:+.2f}): "
+            f"the strategy returned {_pct(f['strategy_return'])} against the benchmark's {_pct(f['benchmark_return'])}, "
+            f"a gap of {_pct(f['excess_return'])}.")
+    rated = [x for x in e["by_era"] if x["rated"]]
+    if rated:
+        facts["expect_by_era"] = ("Outperform rate on favorable days by era: " + "; ".join(
+            f"{x['era']} {x['hit_rate']:.0%} outperform, {x['miss_rate']:.0%} underperform ({x['favorable_days']:,} days)"
+            for x in rated) + ".")
+    pub = e.get("by_publication")
+    if pub and pub["before"] and pub["after"]:
+        b, a = pub["before"], pub["after"]
+        facts["expect_by_publication"] = (
+            f"On favorable days before publication ({pub['year']}) the strategy outperformed {b['hit_rate']:.0%} and "
+            f"underperformed {b['miss_rate']:.0%} of the time ({b['favorable_days']:,} days); after publication "
+            f"{a['hit_rate']:.0%} and {a['miss_rate']:.0%} ({a['favorable_days']:,} days).")
+    if e.get("date_effect") is not None:
+        facts["expect_time"] = (
+            f"Date effect {e['date_effect']:+.2f}: the rank-biserial contrast of the failures' dates against the successes' "
+            f"dates among favorable days (+1 would mean every failure came after every success, 0 no time pattern).")
+    notable = [d for d in e["what_differed"] if d["band"] != "typical"][:3]
+    if notable:
+        for n, d in enumerate(notable, 1):
+            facts[f"expect_differed_{n}"] = (
+                f"Among favorable days, {d['label']} was {'higher' if d['effect'] > 0 else 'lower'} on the failure days than on "
+                f"the success days ({d['band']}; effect {d['effect']:+.2f}; median {_fmt_value(d['inside_median'], d['fmt'])} vs "
+                f"{_fmt_value(d['baseline_median'], d['fmt'])}). Indicator key: {d['indicator']}.")
+    else:
+        top = e["what_differed"][0] if e["what_differed"] else None
+        facts["expect_differed_none"] = ("No measured indicator was notably different on the failure days than on the success days"
+                                         + (f" (largest effect {top['effect']:+.2f}, {top['label']})." if top else "."))
+    b = e["behaviour"]
+    if all(b.get(k) is not None for k in ("turnover_failure", "turnover_success", "exposure_failure", "exposure_success")):
+        facts["expect_behaviour"] = (
+            f"The strategy's own behaviour on failure vs success days: average daily turnover {b['turnover_failure']:.3f} vs "
+            f"{b['turnover_success']:.3f} (fraction of capital traded), average gross exposure {b['exposure_failure']:.2f}x vs "
+            f"{b['exposure_success']:.2f}x.")
+    g = e.get("score_gap") or {}
+    if g.get("effect") is not None:
+        facts["expect_score_gap"] = (
+            f"Mean conditions score on failure days {g['failure_mean']:+.2f} vs {g['success_mean']:+.2f} on success days "
+            f"(effect {g['effect']:+.2f}; strongly negative means the failures were borderline-favorable days).")
+    facts["expect_verdict"] = e["verdict"]["text"]
+
+
 def strategy_facts(result: dict, spec: dict, params: dict) -> dict:
     """Facts for 'explain this strategy'. Contains no prices, dates series or trades."""
     bench = "cash" if result["benchmark"] == "CASH" else result["benchmark"]
@@ -168,6 +232,7 @@ def strategy_facts(result: dict, spec: dict, params: dict) -> dict:
                                 + ", ".join(f"{k} {v:,}" for k, v in days.items()) + ".")
     _condition_facts("outperform", "On days the strategy outperformed", result["conditions"]["outperform"], facts)
     _condition_facts("underperform", "On days it underperformed", result["conditions"]["underperform"], facts)
+    _expectation_facts(result.get("expectations"), facts)
     return facts
 
 
@@ -187,6 +252,13 @@ def period_facts(stats: dict, spec: dict, params: dict, conditions: list[dict]) 
     if stats.get("regime_share"):
         facts["regime_share"] = ("Share of the period's days labelled by the regime segmenter: "
                                  + ", ".join(f"{k} {v:.0f}%" for k, v in stats["regime_share"].items()) + ".")
+    exp = stats.get("expected") or {}
+    if exp.get("available"):
+        facts["window_expected"] = (
+            f"By the strategy's own conditions score (top third of history counts as favorable), {exp['favorable_share']:.0%} of "
+            f"the days in this window had favorable conditions (mean score {exp['score_mean']:+.2f}; favorable above "
+            f"{exp['favorable_cut']:+.2f}), and on {exp['favorable_and_underperform_share']:.0%} of the days conditions were "
+            f"favorable while the strategy sat in an underperform regime.")
     _inflection_facts(stats.get("inflections"), facts)
     for rank, c in enumerate(conditions[:TOP_CONDITIONS], 1):
         facts[f"condition_{rank}"] = (
@@ -316,6 +388,10 @@ class TemplateExplainer:
             alpha_keys = [k for k in facts if k.startswith("alpha_") or k == "publication_year"]
             sections.append({"heading": "Alpha", "basis": "fact", "evidence": alpha_keys,
                              "body": " ".join(facts[k] for k in alpha_keys)})
+            expect = [k for k in facts if k.startswith("expect_")]
+            if expect:
+                sections.append({"heading": "When it should have worked but didn't", "basis": "fact", "evidence": expect,
+                                 "body": " ".join(facts[k] for k in expect)})
         if definitions:
             sections.append({"heading": "Indicator definitions", "basis": "reference", "evidence": [],
                              "body": " ".join(f"{d['label']}: {d['what']} {d['matters']}" for d in definitions.values())})

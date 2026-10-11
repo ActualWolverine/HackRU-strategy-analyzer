@@ -309,6 +309,7 @@
     <div class="legend">
       <span><i class="swatch" style="background:var(--good);opacity:.35"></i>Outperforming (top third of rolling 3-month return vs. benchmark)</span>
       <span><i class="swatch" style="background:var(--bad);opacity:.35"></i>Underperforming (bottom third)</span>
+      <span><i class="swatch" style="background:var(--text-primary);opacity:.45"></i>Strip along the bottom: conditions favorable by the strategy's own score</span>
       <span id="bt-scale-note">Unshaded = roughly matching. Growth of 100, log scale.</span>
     </div>
     <div class="chips" id="bt-diag"></div>
@@ -420,6 +421,39 @@
       <span><i class="swatch" style="background:var(--pole-high)"></i>Higher than on other days</span>
       <span><i class="swatch" style="background:var(--pole-low)"></i>Lower than on other days</span>
     </div>
+  </section>
+
+  <section class="card" id="expect-card" hidden>
+    <h2 style="margin-bottom:4px">When it should have worked but didn't</h2>
+    <p class="hint" id="expect-method" style="margin:0 0 8px"></p>
+    <p class="summary" id="expect-summary"></p>
+    <div id="expect-detail">
+      <div class="two-col">
+        <div>
+          <h3>Outcome on favorable days, by era</h3>
+          <table>
+            <thead><tr><th>Era</th><th class="num">Favorable days</th><th class="num">Outperformed</th><th class="num">Underperformed</th></tr></thead>
+            <tbody id="expect-eras"></tbody>
+          </table>
+          <p class="hint" id="expect-pub" style="margin-top:8px"></p>
+        </div>
+        <div>
+          <h3>What separated the failures from the successes</h3>
+          <p class="hint" style="margin:0 0 8px">Favorable days only, failures vs. successes. Indicators inside the conditions score are left out: failures always sit lower on the score, so those would differ by construction.</p>
+          <table>
+            <thead><tr><th>Indicator</th><th>Vs. success days</th><th class="num">Median</th><th class="num hide-sm">Pctile</th></tr></thead>
+            <tbody id="expect-differed"></tbody>
+          </table>
+        </div>
+      </div>
+      <h3 style="margin-top:16px">Longest stretches where conditions were favorable but the strategy underperformed</h3>
+      <table>
+        <thead><tr><th>Period</th><th class="num">Days</th><th class="num">Strategy</th><th class="num" id="expect-bench">Benchmark</th><th class="num">Gap</th><th class="num hide-sm">Score</th><th></th></tr></thead>
+        <tbody id="expect-failures"></tbody>
+      </table>
+      <div class="chips" id="expect-chips"></div>
+    </div>
+    <p class="summary" id="expect-verdict" style="margin-top:12px"></p>
   </section>
 </main>
 
@@ -773,6 +807,16 @@
       ctx.fillRect(Math.max(0, x1), 0, Math.min(width, x2) - Math.max(0, x1), height);
     }
 
+    // Thin strip along the bottom: days the strategy's own conditions score called favorable.
+    const fav = btData.expectations?.favorable_runs ?? [];
+    ctx.fillStyle = hexToRgba(css("--text-primary"), 0.45);
+    for (const run of fav) {
+      const x1 = ts.logicalToCoordinate(btData.dateIndex.get(run.start)) - half;
+      const x2 = ts.logicalToCoordinate(btData.dateIndex.get(run.end)) + half;
+      if (!Number.isFinite(x1) || !Number.isFinite(x2) || x2 < 0 || x1 > width) continue;
+      ctx.fillRect(Math.max(0, x1), height - 5, Math.min(width, x2) - Math.max(0, x1), 5);
+    }
+
     // Publication marker: a dashed line on the first trading day of the publication year.
     const pub = btData.alpha?.published;
     if (pub) {
@@ -964,11 +1008,75 @@
     renderConditions($("out-rows"), r.conditions.outperform, { showTypical: false, context: "On days the strategy outperformed" });
     renderConditions($("under-rows"), r.conditions.underperform, { showTypical: false, context: "On days the strategy underperformed" });
     $("bt-conditions").hidden = false;
+    renderExpectations(r);
 
     // A new run invalidates the previous explanations and period selection.
     $("explain-card").hidden = true;
     clearPeriod();
     if (!location.search.includes("noscroll")) $("bt").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // "Should have worked but didn't" (see expectations.py)
+  const pct0 = (x) => x == null ? "n/a" : `${Math.round(x * 100)}%`;
+
+  function renderExpectations(r) {
+    const e = r.expectations;
+    const card = $("expect-card");
+    if (!e) { card.hidden = true; return; }
+    card.hidden = false;
+    for (const id of ["expect-eras", "expect-differed", "expect-failures", "expect-chips"]) $(id).replaceChildren();
+    $("expect-pub").textContent = "";
+    $("expect-detail").hidden = !e.available;
+    if (!e.available) {
+      $("expect-method").textContent = "";
+      $("expect-summary").textContent = e.verdict.text;
+      $("expect-verdict").textContent = "";
+      return;
+    }
+    $("expect-bench").textContent = r.benchmark === "CASH" ? "Cash" : r.benchmark;
+    $("expect-method").textContent = `Conditions score: ${e.score_indicators.map(i => `${i.label} (${i.effect >= 0 ? "+" : ""}${i.effect.toFixed(2)})`).join(", ")}; ` +
+      `each indicator's percentile over history, weighted by its effect on outperforming days, averaged over ${e.window} days. ` +
+      `"Favorable" = top third of the score. Fit on the whole sample, so the hit rate is in-sample.`;
+    $("expect-summary").textContent = `Conditions were favorable on ${e.favorable_days.toLocaleString()} days. On those days the strategy outperformed ` +
+      `${pct0(e.hit_rate)} of the time (${e.lift.toFixed(1)}× the base rate of ${pct0(e.base_rate)}) and underperformed ${pct0(e.miss_rate)}: ` +
+      `${e.failure_days.toLocaleString()} days, in ${e.n_failure_runs} stretches of 10+ days, where it should have worked but didn't. ` +
+      `The reverse, outperforming under unfavorable conditions, happened on ${e.surprise_days.toLocaleString()} days.`;
+
+    for (const x of e.by_era) {
+      const tr = el("tr", x.rated ? "" : "typical");
+      tr.append(el("td", "", x.era + (x.rated ? "" : " (few days)")), el("td", "num", x.favorable_days.toLocaleString()),
+                el("td", "num", pct0(x.hit_rate)), el("td", "num", pct0(x.miss_rate)));
+      $("expect-eras").appendChild(tr);
+    }
+    const pub = e.by_publication;
+    if (pub && pub.before && pub.after) {
+      $("expect-pub").textContent = `Before publication (${pub.year}): outperformed ${pct0(pub.before.hit_rate)}, underperformed ${pct0(pub.before.miss_rate)} ` +
+        `of ${pub.before.favorable_days.toLocaleString()} favorable days. After: ${pct0(pub.after.hit_rate)} and ${pct0(pub.after.miss_rate)} of ${pub.after.favorable_days.toLocaleString()}.`;
+    }
+    renderConditions($("expect-differed"), e.what_differed, { showTypical: false, context: "On failure days vs. success days (favorable conditions only)" });
+
+    for (const f of e.failures) {
+      const tr = el("tr");
+      const btn = el("button", "", "Explain");
+      btn.title = "Select this stretch on the chart and explain it";
+      btn.addEventListener("click", () => { period = { start: f.start, end: f.end }; redrawBtSelection(); explainPeriod(period); });
+      const act = el("td"); act.appendChild(btn);
+      tr.append(el("td", "", `${f.start} to ${f.end}`), el("td", "num", String(f.days)), el("td", "num", signedPct(f.strategy_return * 100)),
+                el("td", "num", signedPct(f.benchmark_return * 100)), el("td", "num", signedPct(f.excess_return * 100)),
+                el("td", "num hide-sm", `${f.score >= 0 ? "+" : ""}${f.score.toFixed(2)}`), act);
+      $("expect-failures").appendChild(tr);
+    }
+    if (!e.failures.length) {
+      const tr = el("tr"); tr.appendChild(el("td", "", "No stretch of 10+ days.")); $("expect-failures").appendChild(tr);
+    }
+
+    const b = e.behaviour, g = e.score_gap;
+    const chips = [["Date effect (failures later = +)", e.date_effect == null ? "n/a" : `${e.date_effect >= 0 ? "+" : ""}${e.date_effect.toFixed(2)}`],
+                   ["Score on failures vs. successes", g.failure_mean == null ? "n/a" : `${g.failure_mean.toFixed(2)} vs ${g.success_mean.toFixed(2)}`],
+                   ["Daily turnover, failures vs. successes", b.turnover_failure == null ? "n/a" : `${b.turnover_failure.toFixed(3)} vs ${b.turnover_success.toFixed(3)}`],
+                   ["Gross exposure", b.exposure_failure == null ? "n/a" : `${b.exposure_failure.toFixed(2)}× vs ${b.exposure_success.toFixed(2)}×`]];
+    for (const [k, v] of chips) { const c = el("span", "chip", `${k}: `); c.appendChild(el("b", "", v)); $("expect-chips").appendChild(c); }
+    $("expect-verdict").textContent = e.verdict.text;
   }
 
   // =====================================================================

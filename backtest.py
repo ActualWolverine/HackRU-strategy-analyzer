@@ -15,6 +15,7 @@ credited with T-bill-like interest rather than zero.
 import numpy as np
 import pandas as pd
 from data_loader import get_closes, get_macro_daily, load_market_state
+from expectations import expectation_check, favorability_score, favorable_share
 from inflections import describe_inflections
 from regime import compare_conditions
 from stats import ols_hac
@@ -205,15 +206,24 @@ def period_stats(strategy, tickers: list[str], benchmark: str, params: dict, sta
 
     gross = w.abs().sum(axis=1)
     share = labels.reindex(s.index).value_counts(normalize=True) * 100
+    # Were conditions favorable in this window, by the strategy's own conditions report?
+    state = load_market_state()
+    score, used = favorability_score(state, compare_conditions(labels.eq("outperform"), state), LABEL_WINDOW)
+    score = score.reindex(labels.index)
+    expected = {"available": False}
+    if used:
+        valid = labels.notna() & score.notna()
+        cut = float(score[valid].quantile(2 / 3))
+        expected = {**favorable_share(score, labels, cut, s.index[0], s.index[-1]), "favorable_cut": cut,
+                    "score_indicators": used}
     # Alpha uses the full-backtest beta, the same fit as the alpha table.
     market_ret = closes[market].pct_change().fillna(0.0)
     fit = alpha_stats(strat.loc[first:], market_ret.loc[first:], rf.loc[first:])
     beta = fit["beta"] if fit else 0.0
     # Weights for the whole backtest so trades just outside the window still show.
-    inflections = describe_inflections(s, market_ret[window], rf[window], beta,
-                                       weights.loc[first:], load_market_state())
+    inflections = describe_inflections(s, market_ret[window], rf[window], beta, weights.loc[first:], state)
     return {
-        "inflections": inflections,
+        "inflections": inflections, "expected": expected,
         "start": s.index[0].strftime("%Y-%m-%d"), "end": s.index[-1].strftime("%Y-%m-%d"),
         "n_days": int(window.sum()), "benchmark": benchmark,
         "strategy_return": total(s), "benchmark_return": total(b), "excess_return": total(s) - total(b),
@@ -266,6 +276,7 @@ def backtest(strategy, tickers: list[str], benchmark: str, params: dict, start=N
     state = load_market_state()
     strat_equity = 100 * (1 + strat_returns).cumprod()
     bench_equity = 100 * (1 + bench_returns).cumprod()
+    conditions = {lab: compare_conditions(labels.eq(lab), state) for lab in ("outperform", "underperform")}
     return {
         **result,
         "dates": strat_equity.index.strftime("%Y-%m-%d").tolist(),
@@ -274,7 +285,8 @@ def backtest(strategy, tickers: list[str], benchmark: str, params: dict, start=N
         "label_window": LABEL_WINDOW,
         "regimes": label_runs(labels),
         "regime_days": labels.value_counts().to_dict(),
-        "conditions": {
-            lab: compare_conditions(labels.eq(lab), state) for lab in ("outperform", "underperform")
-        },
+        "conditions": conditions,
+        # When conditions were favorable but the strategy still underperformed (see expectations.py).
+        "expectations": expectation_check(labels, strat_returns, bench_returns, weights.loc[first:], state,
+                                          conditions["outperform"], published, LABEL_WINDOW),
     }

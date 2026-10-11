@@ -52,20 +52,28 @@ def rank_biserial(inside: pd.Series, outside: pd.Series) -> float:
     return float(2 * u / (n_in * n_out) - 1)
 
 
-def compare_conditions(mask: pd.Series, state: pd.DataFrame | None = None) -> list[dict]:
+def compare_conditions(mask: pd.Series, state: pd.DataFrame | None = None,
+                       universe: pd.Series | None = None) -> list[dict]:
     """Contrast the days where `mask` is True against the rest of history.
 
-    Returns one dict per indicator, sorted by |effect| descending.
+    With `universe`, the contrast is against the other days inside `universe`
+    only (e.g. failures vs. successes among favorable days). Returns one dict
+    per indicator, sorted by |effect| descending.
     """
     if state is None:
         state = load_market_state()
     mask = mask.reindex(state.index, fill_value=False).astype(bool)
+    universe = (pd.Series(True, index=state.index) if universe is None
+                else universe.reindex(state.index, fill_value=False).astype(bool))
 
     rows = []
     for col, meta in INDICATORS.items():
+        if col not in state.columns:
+            continue
         series = state[col].dropna()
         m = mask.reindex(series.index, fill_value=False)
-        inside, outside = series[m], series[~m]
+        u = universe.reindex(series.index, fill_value=False)
+        inside, outside = series[m & u], series[~m & u]
         if len(inside) < 5:
             continue
         effect = rank_biserial(inside, outside)
