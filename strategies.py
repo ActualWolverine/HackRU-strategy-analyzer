@@ -11,6 +11,7 @@ import pandas as pd
 from statsmodels.tsa.stattools import coint
 
 TRADING_DAYS = 252
+MAX_NET_EXPOSURE = 0.5  # pairs: largest |long - short| allowed, as a fraction of gross
 
 
 # ---------------------------------------------------------------------------
@@ -43,10 +44,18 @@ def zscore_to_weights(z: pd.Series, beta: pd.Series, entry: float, exit: float) 
     flat = (z.abs() <= exit) | ((z.shift(1) > 0) & (z < 0)) | ((z.shift(1) < 0) & (z > 0))
     side[flat & side.isna()] = 0.0
     side = side.ffill().fillna(0.0)
+    # Weights are hedge-ratio proportional (w_x / w_y = beta), so net exposure
+    # is side * (1 - beta) / (1 + beta). A hedge ratio far from 1, or negative,
+    # turns the "pair" into a one-sided directional bet. Trade only while the
+    # net exposure would stay within MAX_NET_EXPOSURE of gross, which for the
+    # default 0.5 means beta in [1/3, 3]; otherwise stay flat.
+    lo, hi = (1 - MAX_NET_EXPOSURE) / (1 + MAX_NET_EXPOSURE), (1 + MAX_NET_EXPOSURE) / (1 - MAX_NET_EXPOSURE)
+    tradable = (beta >= lo) & (beta <= hi)
+    side = side.where(tradable, 0.0)
 
-    b = beta.abs().fillna(0.0)
+    b = beta.where(tradable, 0.0)
     w_y = side / (1 + b)
-    w_x = -side * np.sign(beta.fillna(0.0)) * b / (1 + b)
+    w_x = -side * b / (1 + b)
     return pd.DataFrame({"y": w_y, "x": w_x})
 
 
@@ -491,7 +500,13 @@ STRATEGIES = {
 
 
 # When each strategy became public, for the before/after-publication alpha test.
-# Year = first widely available publication (journal, working paper or book).
+# Year = the journal, book or SSRN publication named in the source. Checked
+# against the publishers' records on 2026-10-11 for the strategies that carry
+# findings: Faber (JWM Spring 2007; SSRN working paper 2006), Connors & Alvarez
+# (2008), Moskowitz-Ooi-Pedersen (JFE 2012), Antonacci (SSRN, first posted
+# April 2012), Moreira & Muir (JF 2017; NBER working paper April 2016). Where a
+# working paper preceded the journal by a year, the journal year is used, so
+# "before publication" may include up to a year of post-circulation data.
 # None = folk strategy with no single source.
 PUBLICATIONS = {
     "pairs_stat_arb":           (2006, "Gatev, Goetzmann & Rouwenhorst, Review of Financial Studies (2006)"),

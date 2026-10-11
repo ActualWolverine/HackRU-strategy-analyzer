@@ -110,6 +110,30 @@
   .subpane-head .range button { padding: 2px 8px; font-size: 12px; }
   .chart-wrap.selecting { cursor: crosshair; }
   #bt-shade { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; }
+  .sel-box {
+    position: absolute; top: 0; bottom: 28px; display: none; pointer-events: none; z-index: 4;
+    background: var(--selection);
+    border-left: 1px solid var(--series-1); border-right: 1px solid var(--series-1);
+  }
+  /* Explanations */
+  .expl .provenance { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 12px; color: var(--text-secondary); margin-bottom: 12px; }
+  .expl .provenance b { color: var(--text-primary); font-weight: 500; }
+  .expl .lead { font-size: 15px; margin: 0 0 16px; }
+  .expl .section { margin-bottom: 16px; }
+  .expl .section h3 { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .expl .section p { margin: 0 0 8px; }
+  .basis { font-size: 11px; border-radius: 999px; padding: 1px 8px; font-weight: 400; border: 1px solid var(--border); color: var(--text-secondary); }
+  .basis.fact { border-color: var(--text-secondary); color: var(--text-primary); }
+  .expl details { font-size: 12px; color: var(--text-secondary); }
+  .expl details summary { cursor: pointer; }
+  .expl details li { margin: 4px 0; }
+  .expl details code { font-size: 11px; color: var(--text-muted); }
+  .expl .caveats { color: var(--text-secondary); font-size: 13px; padding-left: 18px; margin: 0; }
+  .expl .warn { color: var(--bad); }
+  tbody tr.clickable { cursor: pointer; }
+  tbody tr.clickable:hover td { background: var(--accent-bg); }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--series-1); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   #selection {
     position: absolute; top: 0; bottom: 28px; display: none; pointer-events: none;
     background: var(--selection);
@@ -261,13 +285,16 @@
       <h2 id="bt-title"></h2>
       <span class="sub" id="bt-range"></span>
       <button id="bt-normalize" aria-pressed="false" title="Divide the strategy by the benchmark so the benchmark is a flat line at 100">Relative to benchmark</button>
+      <button id="bt-select" aria-pressed="false">Select period</button>
+      <button id="explain-strategy" class="primary">Explain strategy</button>
+      <span class="hint" id="bt-select-hint"></span>
     </div>
     <div class="readout">
       <span class="meta"><span class="key"></span>Strategy <b id="bt-ro-strat"></b></span>
       <span class="meta"><span class="key bench"></span><span id="bt-bench-name">Benchmark</span> <b id="bt-ro-bench"></b></span>
       <span class="meta" id="bt-ro-date"></span>
     </div>
-    <div class="chart-wrap"><div id="bt-chart"></div><canvas id="bt-shade"></canvas></div>
+    <div class="chart-wrap" id="bt-wrap"><div id="bt-chart"></div><canvas id="bt-shade"></canvas><div id="bt-selection" class="sel-box"></div></div>
     <div class="subpane-head">
       <h3>Excess return vs. benchmark</h3>
       <div class="range" id="excess-window">
@@ -302,6 +329,61 @@
         </table>
         <p class="summary" id="alpha-verdict" style="margin-top:8px"></p>
         <p class="hint" id="alpha-source"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="explain-card" hidden>
+    <div class="panel-head">
+      <h2>Why this strategy works, and when it doesn't</h2>
+      <span class="hint" id="explain-status"></span>
+    </div>
+    <div class="expl" id="explain-body"></div>
+  </section>
+
+  <section class="card" id="period-card" hidden>
+    <div class="panel-head">
+      <h2>Selected period</h2>
+      <span class="sub" id="period-range"></span>
+      <button id="period-clear">Clear</button>
+      <span class="hint" id="period-status"></span>
+    </div>
+    <div class="two-col">
+      <div>
+        <h3>What happened</h3>
+        <table>
+          <thead><tr><th></th><th class="num">Strategy</th><th class="num" id="period-bench">Benchmark</th></tr></thead>
+          <tbody id="period-stats"></tbody>
+        </table>
+        <div class="chips" id="period-chips"></div>
+      </div>
+      <div>
+        <h3>Market conditions in the period vs. the rest of history</h3>
+        <table>
+          <thead><tr><th>Indicator</th><th>Vs. other days</th><th class="num">Median</th><th class="num hide-sm">Pctile</th></tr></thead>
+          <tbody id="period-rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="expl" id="period-body" style="margin-top:16px"></div>
+  </section>
+
+  <section class="card" id="indicator-card" hidden>
+    <div class="panel-head">
+      <h2 id="ind-title"></h2>
+      <span class="sub" id="ind-formula"></span>
+      <button id="ind-close">Close</button>
+    </div>
+    <div class="two-col">
+      <div>
+        <h3>What it measures</h3><p class="summary" id="ind-what"></p>
+        <h3>How to read it</h3><p class="summary" id="ind-read"></p>
+        <p class="hint" id="ind-dir"></p>
+      </div>
+      <div>
+        <h3>Why it matters for strategies</h3><p class="summary" id="ind-matters"></p>
+        <h3>Caveat</h3><p class="summary" id="ind-caveat"></p>
+        <div id="ind-context"></div>
       </div>
     </div>
   </section>
@@ -507,13 +589,14 @@
     return `${subject}, ${parts.join("; ")}.`;
   }
 
-  function renderConditions(tbody, indicators, { showTypical = true } = {}) {
+  function renderConditions(tbody, indicators, { showTypical = true, context = "" } = {}) {
     tbody.replaceChildren();
     for (const i of indicators) {
-      const tr = el("tr", i.band === "typical" ? "typical" : "");
+      const tr = el("tr", (i.band === "typical" ? "typical " : "") + "clickable");
+      tr.title = "Click for a description of this indicator";
+      tr.addEventListener("click", () => showIndicator(i, context));
 
       const name = el("td", "", i.label);
-      if (i.formula) name.title = i.formula;
       name.appendChild(el("span", "dir", i.band === "typical" ? "typical" : `${i.band} · ${i.direction}`));
 
       const barCell = el("td", "bar-cell");
@@ -531,12 +614,40 @@
     }
   }
 
+  // ---------- Indicator reference (deterministic, from /api/indicators) ----------
+  const indicatorRef = new Map();
+
+  function showIndicator(row, context) {
+    const ref = indicatorRef.get(row.indicator);
+    if (!ref) return;
+    $("ind-title").textContent = ref.label;
+    $("ind-formula").textContent = ref.formula || "";
+    $("ind-what").textContent = ref.what;
+    $("ind-read").textContent = ref.read;
+    $("ind-dir").textContent = `High readings mean "${ref.high}"; low readings mean "${ref.low}".`;
+    $("ind-matters").textContent = ref.matters;
+    $("ind-caveat").textContent = ref.caveat;
+    const ctx = $("ind-context");
+    ctx.replaceChildren();
+    if (row.inside_median !== undefined) {
+      ctx.appendChild(el("h3", "", context || "In this selection"));
+      const p = el("p", "summary");
+      p.textContent = `Median ${fmtValue(row.inside_median, row.fmt)} vs. ${fmtValue(row.baseline_median, row.fmt)} on other days ` +
+        `(${ordinal(row.percentile)} percentile of all history). ${row.band === "typical" ? "Typical." : `${row.band[0].toUpperCase()}${row.band.slice(1)}: ${row.direction}.`} ` +
+        `Rank-biserial effect ${row.effect >= 0 ? "+" : ""}${row.effect.toFixed(2)}: the share of selected-vs-other day pairs where the selected day was higher, minus the share where it was lower.`;
+      ctx.appendChild(p);
+    }
+    $("indicator-card").hidden = false;
+    $("indicator-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+  $("ind-close").addEventListener("click", () => { $("indicator-card").hidden = true; });
+
   async function loadConditions({ start, end }) {
     const res = await fetch(`/api/conditions?start=${start}&end=${end}`);
     const r = await res.json();
     $("cond-range").textContent = `${r.start} to ${r.end} · ${r.n_days} trading days`;
     $("cond-summary").textContent = summarize(r.indicators, "Compared with the rest of history");
-    renderConditions($("cond-rows"), r.indicators);
+    renderConditions($("cond-rows"), r.indicators, { context: `In ${r.start} to ${r.end}` });
     $("conditions").hidden = false;
     $("conditions").scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
@@ -601,6 +712,7 @@
     const params = {};
     for (const input of $("params").querySelectorAll("[data-name]")) params[input.dataset.name] = input.value;
     const body = { strategy: $("strategy").value, benchmark: $("benchmark").value, params };
+    lastRequest = body;
     const btn = $("run"), status = $("run-status");
     btn.disabled = true; status.className = "hint"; status.textContent = "Computing…";
     try {
@@ -841,10 +953,190 @@
     // Conditions per regime
     $("out-summary").textContent = summarize(r.conditions.outperform, "On days it outperformed");
     $("under-summary").textContent = summarize(r.conditions.underperform, "On days it underperformed");
-    renderConditions($("out-rows"), r.conditions.outperform, { showTypical: false });
-    renderConditions($("under-rows"), r.conditions.underperform, { showTypical: false });
+    renderConditions($("out-rows"), r.conditions.outperform, { showTypical: false, context: "On days the strategy outperformed" });
+    renderConditions($("under-rows"), r.conditions.underperform, { showTypical: false, context: "On days the strategy underperformed" });
     $("bt-conditions").hidden = false;
+
+    // A new run invalidates the previous explanations and period selection.
+    $("explain-card").hidden = true;
+    clearPeriod();
     if (!location.search.includes("noscroll")) $("bt").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // =====================================================================
+  // Explanations: strategy-level and selected-period (see explain.py)
+  // =====================================================================
+  let lastRequest = null;   // body of the most recent /api/backtest call
+  let explainInfo = { provider: "template", model: null };
+
+  function renderExplanation(container, r) {
+    container.replaceChildren();
+
+    // Provenance first: what produced this text, and how long each part took.
+    const prov = el("div", "provenance");
+    if (r.provider === "gemini") {
+      prov.appendChild(el("span", "", "AI explanation: ")); prov.lastChild.appendChild(el("b", "", r.model || "Gemini"));
+      prov.appendChild(el("span", "", `model ${(r.model_latency_ms / 1000).toFixed(1)} s${r.cached ? " (cached)" : ""} · engine ${r.engine_latency_ms.toFixed(0)} ms`));
+      prov.appendChild(el("span", "", "All numbers were computed by the engine. Sections marked “inference” are the model's interpretation."));
+    } else {
+      prov.appendChild(el("span", "", "Offline explanation: ")); prov.lastChild.appendChild(el("b", "", "no AI model"));
+      prov.appendChild(el("span", "", `engine ${r.engine_latency_ms.toFixed(0)} ms`));
+      if (r.fallback_reason) prov.appendChild(el("span", "warn", `Gemini unavailable (${r.fallback_reason.split(".")[0]}); showing the engine's facts without interpretation.`));
+    }
+    if (r.unsupported_citations) prov.appendChild(el("span", "warn", `${r.unsupported_citations} unsupported citation(s) were removed by the validator.`));
+    container.appendChild(prov);
+
+    container.appendChild(el("p", "lead", r.summary));
+
+    for (const s of r.sections) {
+      const sec = el("div", "section");
+      const h = el("h3", "", s.heading);
+      h.appendChild(el("span", `basis ${s.basis}`, s.basis === "fact" ? "fact" : s.basis === "reference" ? "reference" : "inference"));
+      sec.appendChild(h);
+      for (const para of String(s.body).split(/\n+/).filter(Boolean)) sec.appendChild(el("p", "", para));
+      if (s.evidence.length) {
+        const det = el("details");
+        det.appendChild(el("summary", "", `Evidence: ${s.evidence.length} engine fact${s.evidence.length > 1 ? "s" : ""}`));
+        const ul = el("ul");
+        for (const k of s.evidence) {
+          const li = el("li", "", r.facts[k] + " ");
+          li.appendChild(el("code", "", k));
+          ul.appendChild(li);
+        }
+        det.appendChild(ul);
+        sec.appendChild(det);
+      }
+      container.appendChild(sec);
+    }
+
+    if (r.caveats?.length) {
+      container.appendChild(el("h3", "", "Caveats"));
+      const ul = el("ul", "caveats");
+      for (const c of r.caveats) ul.appendChild(el("li", "", c));
+      container.appendChild(ul);
+    }
+  }
+
+  function setBusy(statusEl, text) {
+    statusEl.replaceChildren();
+    if (!text) return;
+    statusEl.appendChild(el("span", "spinner"));
+    statusEl.appendChild(document.createTextNode(text));
+  }
+
+  async function postJSON(url, body) {
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const r = await res.json();
+    if (!res.ok) throw new Error(r.detail || res.statusText);
+    return r;
+  }
+
+  $("explain-strategy").addEventListener("click", async () => {
+    if (!lastRequest) return;
+    const btn = $("explain-strategy"), status = $("explain-status");
+    btn.disabled = true;
+    $("explain-card").hidden = false;
+    $("explain-body").replaceChildren();
+    setBusy(status, explainInfo.provider === "gemini" ? "Asking the model (a few seconds)…" : "Building explanation…");
+    $("explain-card").scrollIntoView({ behavior: "smooth", block: "start" });
+    try {
+      renderExplanation($("explain-body"), await postJSON("/api/explain/strategy", lastRequest));
+      status.replaceChildren();
+    } catch (e) {
+      status.className = "hint error"; status.textContent = e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---------- Period selection on the backtest chart ----------
+  const btWrap = $("bt-wrap");
+  const btSelEl = $("bt-selection");
+  const btSelBtn = $("bt-select");
+  let btSelectMode = false, btDragStart = null, period = null;
+
+  function setBtSelectMode(on) {
+    btSelectMode = on;
+    btSelBtn.setAttribute("aria-pressed", on);
+    btWrap.classList.toggle("selecting", on);
+    btChart.applyOptions({ handleScroll: !on, handleScale: !on });
+    $("bt-select-hint").textContent = on ? "Drag across the chart to pick a period to explain" : "";
+  }
+  btSelBtn.addEventListener("click", () => setBtSelectMode(!btSelectMode));
+
+  const btXOf = (e) => e.clientX - btWrap.getBoundingClientRect().left;
+  function drawBtSelection(x1, x2) {
+    btSelEl.style.display = "block";
+    btSelEl.style.left = `${Math.min(x1, x2)}px`;
+    btSelEl.style.width = `${Math.abs(x2 - x1)}px`;
+  }
+  function redrawBtSelection() {
+    if (!period || !btData) { btSelEl.style.display = "none"; return; }
+    const ts = btChart.timeScale();
+    const snap = (d) => { const i = btData.dates.findIndex(x => x >= d); return i === -1 ? btData.dates[btData.dates.length - 1] : btData.dates[i]; };
+    const x1 = ts.timeToCoordinate(snap(period.start)), x2 = ts.timeToCoordinate(snap(period.end));
+    if (x1 === null && x2 === null) { btSelEl.style.display = "none"; return; }
+    drawBtSelection(x1 ?? 0, x2 ?? btWrap.clientWidth);
+  }
+  btChart.timeScale().subscribeVisibleLogicalRangeChange(redrawBtSelection);
+
+  btWrap.addEventListener("pointerdown", (e) => {
+    if (!btSelectMode || e.button !== 0) return;
+    btDragStart = btXOf(e);
+    btWrap.setPointerCapture(e.pointerId);
+    drawBtSelection(btDragStart, btDragStart);
+  });
+  btWrap.addEventListener("pointermove", (e) => { if (btDragStart !== null) drawBtSelection(btDragStart, btXOf(e)); });
+  btWrap.addEventListener("pointerup", (e) => {
+    if (btDragStart === null) return;
+    const x1 = btDragStart, x2 = btXOf(e);
+    btDragStart = null;
+    const ts = btChart.timeScale();
+    const t1 = ts.coordinateToTime(Math.min(x1, x2)), t2 = ts.coordinateToTime(Math.max(x1, x2));
+    if (!t1 || !t2 || t1 === t2) { redrawBtSelection(); return; }
+    period = { start: t1, end: t2 };
+    redrawBtSelection();
+    setBtSelectMode(false);
+    explainPeriod(period);
+  });
+
+  function clearPeriod() {
+    period = null;
+    redrawBtSelection();
+    $("period-card").hidden = true;
+  }
+  $("period-clear").addEventListener("click", clearPeriod);
+
+  async function explainPeriod({ start, end }) {
+    if (!lastRequest) return;
+    const status = $("period-status");
+    $("period-card").hidden = false;
+    $("period-range").textContent = `${start} to ${end}`;
+    $("period-stats").replaceChildren(); $("period-rows").replaceChildren(); $("period-chips").replaceChildren(); $("period-body").replaceChildren();
+    setBusy(status, explainInfo.provider === "gemini" ? "Computing, then asking the model (a few seconds)…" : "Computing…");
+    $("period-card").scrollIntoView({ behavior: "smooth", block: "start" });
+    try {
+      const r = await postJSON("/api/explain/period", { ...lastRequest, start, end });
+      const st = r.stats, bench = st.benchmark === "CASH" ? "Cash" : st.benchmark;
+      $("period-range").textContent = `${st.start} to ${st.end} · ${st.n_days} trading days`;
+      $("period-bench").textContent = bench;
+      const rows = [["Return", st.strategy_return, st.benchmark_return, "pct"],
+                    ["Max drawdown", st.strategy_max_drawdown, st.benchmark_max_drawdown, "pct"],
+                    ["Volatility (annual)", st.strategy_volatility, st.benchmark_volatility, "pct"]];
+      for (const [label, a, b, fmt] of rows) {
+        const tr = el("tr"); tr.append(el("td", "", label), el("td", "num", fmtValue(a, fmt)), el("td", "num", fmtValue(b, fmt)));
+        $("period-stats").appendChild(tr);
+      }
+      const tr = el("tr"); tr.append(el("td", "", "Excess return"), el("td", "num", signedPct(st.excess_return * 100)), el("td", "num", "")); $("period-stats").appendChild(tr);
+      const chips = [["Avg. exposure", `${st.avg_gross_exposure.toFixed(2)}×`], ["Days invested", `${st.days_invested_pct.toFixed(0)}%`],
+                     ["Position changes", st.position_changes], ["Best day", signedPct(st.best_day * 100)], ["Worst day", signedPct(st.worst_day * 100)]];
+      for (const [k, v] of chips) { const c = el("span", "chip", `${k}: `); c.appendChild(el("b", "", String(v))); $("period-chips").appendChild(c); }
+      renderConditions($("period-rows"), r.conditions, { showTypical: false, context: `In ${st.start} to ${st.end}` });
+      renderExplanation($("period-body"), r);
+      status.replaceChildren();
+    } catch (e) {
+      status.className = "hint error"; status.textContent = e.message;
+    }
   }
 
   // =====================================================================
@@ -951,7 +1243,12 @@
     for (const t of tickers) {
       const opt = el("option", "", t.name); opt.value = t.symbol; select.appendChild(opt);
     }
-    await Promise.all([loadTicker(select.value), loadStrategies()]);
+    await Promise.all([
+      loadTicker(select.value),
+      loadStrategies(),
+      fetch("/api/indicators").then(r => r.json()).then(rows => { for (const row of rows) indicatorRef.set(row.key, row); }),
+      fetch("/api/explain/status").then(r => r.json()).then(s => { explainInfo = s; }).catch(() => {}),
+    ]);
 
     // ?start=YYYY-MM-DD&end=YYYY-MM-DD preselects a region (shareable links).
     const params = new URLSearchParams(location.search);
@@ -965,10 +1262,22 @@
     if (params.get("normalize") === "1") $("bt-normalize").click();
     // ?leaderboard=1 ranks all strategies on load.
     if (params.get("leaderboard") === "1") $("lb-run").click();
+    // ?indicator=<key> opens that indicator's description.
+    if (indicatorRef.has(params.get("indicator"))) showIndicator({ indicator: params.get("indicator") }, "");
     if (params.get("run")) {
       $("strategy").value = params.get("run");
       selectStrategy(params.get("run"));
       $("run").click();
+      // ?explain=1 explains the strategy; ?pstart=&pend= explains a period of it.
+      const runBtn = $("run");
+      const whenDone = () => new Promise(res => { const t = setInterval(() => { if (!runBtn.disabled && lastRequest) { clearInterval(t); res(); } }, 50); });
+      await whenDone();
+      if (params.get("explain") === "1") $("explain-strategy").click();
+      if (params.get("pstart") && params.get("pend")) {
+        period = { start: params.get("pstart"), end: params.get("pend") };
+        redrawBtSelection();
+        explainPeriod(period);
+      }
     }
   })();
 </script>

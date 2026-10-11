@@ -6,3 +6,5 @@ fastapi
 uvicorn[standard]
 statsmodels
 pytest
+google-genai
+python-dotenv

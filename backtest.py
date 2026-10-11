@@ -172,6 +172,52 @@ def label_runs(labels: pd.Series) -> list[dict]:
     return runs
 
 
+def period_stats(strategy, tickers: list[str], benchmark: str, params: dict, start: str, end: str) -> dict:
+    """Deterministic summary of a strategy's behaviour inside one date window.
+
+    Recomputes the full backtest (so the window sees the same warm-up and the
+    same regime labels as the chart), then slices. Input to the AI explainer;
+    contains no price or trade series.
+    """
+    market = benchmark if benchmark != "CASH" else "SPY"
+    closes = get_closes(sorted(set(tickers) | {market})).dropna()
+    rf = risk_free_daily(closes.index)
+    weights = strategy(closes[tickers], **params).reindex(closes.index).fillna(0.0)
+    strat = run(weights, closes, rf)
+    bench = closes[market].pct_change().fillna(0.0) if benchmark != "CASH" else rf
+    first = weights.abs().sum(axis=1).gt(0).idxmax()
+    labels = label_relative_performance(strat.loc[first:], bench.loc[first:])
+
+    lo, hi = pd.Timestamp(start), pd.Timestamp(end)
+    window = (strat.index >= lo) & (strat.index <= hi) & (strat.index >= first)
+    if window.sum() < 2:
+        raise ValueError("selected period has fewer than two trading days of backtest data")
+    s, b, w = strat[window], bench[window], weights[window]
+
+    def total(r: pd.Series) -> float:
+        return float((1 + r).prod() - 1)
+
+    def max_dd(r: pd.Series) -> float:
+        eq = (1 + r).cumprod()
+        return float((eq / eq.cummax() - 1).min())
+
+    gross = w.abs().sum(axis=1)
+    share = labels.reindex(s.index).value_counts(normalize=True) * 100
+    return {
+        "start": s.index[0].strftime("%Y-%m-%d"), "end": s.index[-1].strftime("%Y-%m-%d"),
+        "n_days": int(window.sum()), "benchmark": benchmark,
+        "strategy_return": total(s), "benchmark_return": total(b), "excess_return": total(s) - total(b),
+        "strategy_max_drawdown": max_dd(s), "benchmark_max_drawdown": max_dd(b),
+        "strategy_volatility": float(s.std() * np.sqrt(TRADING_DAYS)),
+        "benchmark_volatility": float(b.std() * np.sqrt(TRADING_DAYS)),
+        "avg_gross_exposure": float(gross.mean()),
+        "days_invested_pct": float((gross > 0).mean() * 100),
+        "position_changes": int((w.diff().abs().sum(axis=1) > 1e-9).sum()),
+        "best_day": float(s.max()), "worst_day": float(s.min()),
+        "regime_share": {k: float(v) for k, v in share.items()},
+    }
+
+
 def backtest(strategy, tickers: list[str], benchmark: str, params: dict, start=None, end=None,
              published: int | None = None, describe: bool = True) -> dict:
     """Run a strategy, benchmark it, measure alpha, label regimes, and describe each regime's conditions.
