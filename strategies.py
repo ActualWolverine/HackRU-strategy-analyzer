@@ -159,6 +159,23 @@ def cross_sectional_momentum(closes, lookback: int = 126, top_n: int = 2, vol_wi
     return weights
 
 
+def sma_trend(closes, asset: str, window: int = 200, monthly: int = 1):
+    """Faber's trend filter: hold the asset while its price is above its N-day simple
+    moving average, otherwise hold cash. With `monthly`, the rule is only checked on
+    the last trading day of each month and held until the next, as in Faber (2007)."""
+    c = closes[asset]
+    sma = c.rolling(window).mean()
+    signal = (c > sma).astype(float).where(sma.notna())
+    if monthly:
+        month = pd.Series(c.index.to_period("M"), index=c.index)
+        month_end = month.ne(month.shift(-1))
+        signal = signal.where(month_end).ffill()
+    w = signal.fillna(0.0)
+    weights = pd.DataFrame({asset: w}, index=closes.index)
+    weights.attrs["diagnostics"] = {"Time in market": f"{w.mean():.0%}", "Switches": int((w != w.shift()).sum() - 1)}
+    return weights
+
+
 def sma_crossover(closes, asset: str, fast: int = 50, slow: int = 200, allow_short: int = 0):
     """Trend following: long when the fast moving average is above the slow one."""
     c = closes[asset]
@@ -362,6 +379,16 @@ STRATEGIES = {
             {"name": "vol_window", "label": "Vol window (days)", "type": "int", "default": 20, "min": 5, "max": 126},
         ],
     },
+    "sma_trend": {
+        "name": "Simple moving average (price vs. SMA)",
+        "description": "Faber's trend filter: hold the asset while price is above its N-day SMA, cash otherwise. Monthly checking (Faber's original) cuts whipsaws.",
+        "fn": sma_trend, "asset_params": ["asset"], "benchmark": "SPY",
+        "params": [
+            {"name": "asset", "label": "Asset", "type": "choice", "choices": SINGLE_ASSETS, "default": "SPY"},
+            {"name": "window", "label": "SMA (days)", "type": "int", "default": 200, "min": 5, "max": 500},
+            {"name": "monthly", "label": "Check month-end only (0/1)", "type": "int", "default": 1, "min": 0, "max": 1},
+        ],
+    },
     "sma_crossover": {
         "name": "Moving-average crossover",
         "description": "Trend following: long while the fast MA is above the slow MA (optionally short otherwise). The 50/200 'golden cross'.",
@@ -461,6 +488,31 @@ STRATEGIES = {
         ],
     },
 }
+
+
+# When each strategy became public, for the before/after-publication alpha test.
+# Year = first widely available publication (journal, working paper or book).
+# None = folk strategy with no single source.
+PUBLICATIONS = {
+    "pairs_stat_arb":           (2006, "Gatev, Goetzmann & Rouwenhorst, Review of Financial Studies (2006)"),
+    "kalman_pairs":             (2013, "Chan, Algorithmic Trading (2013)"),
+    "vol_managed":              (2017, "Moreira & Muir, Journal of Finance (2017)"),
+    "cross_sectional_momentum": (2013, "Asness, Moskowitz & Pedersen, Value and Momentum Everywhere, Journal of Finance (2013)"),
+    "sma_trend":                (2007, "Faber, A Quantitative Approach to Tactical Asset Allocation, Journal of Wealth Management (2007)"),
+    "sma_crossover":            (1992, "Brock, Lakonishok & LeBaron, Journal of Finance (1992)"),
+    "donchian_breakout":        (1960, "Donchian, Financial Analysts Journal (1960)"),
+    "time_series_momentum":     (2012, "Moskowitz, Ooi & Pedersen, Journal of Financial Economics (2012)"),
+    "dual_momentum":            (2012, "Antonacci, Risk Premia Harvesting Through Dual Momentum, SSRN (2012)"),
+    "sector_rotation":          (1999, "Moskowitz & Grinblatt, Do Industries Explain Momentum?, Journal of Finance (1999)"),
+    "rsi_mean_reversion":       (2008, "Connors & Alvarez, Short Term Trading Strategies That Work (2008)"),
+    "bollinger_reversion":      (2001, "Bollinger, Bollinger on Bollinger Bands (2001)"),
+    "buy_the_dip":              (None, "Folk strategy, no single source"),
+    "vix_contango_filter":      (2017, "Johnson, Risk Premia and the VIX Term Structure, JFQA (2017)"),
+    "risk_parity":              (2005, "Qian, Risk Parity Portfolios, PanAgora (2005)"),
+}
+for _key, (_year, _source) in PUBLICATIONS.items():
+    STRATEGIES[_key]["published"] = _year
+    STRATEGIES[_key]["source"] = _source
 
 
 def universe_for(key: str, params: dict) -> list[str]:

@@ -148,6 +148,12 @@
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .chip { border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--text-secondary); }
   .chip b { color: var(--text-primary); font-weight: 500; }
+  .metrics h3 { margin-bottom: 4px; }
+  .sig { font-size: 11px; color: var(--text-secondary); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; margin-left: 6px; white-space: nowrap; }
+  .sig.strong { color: var(--text-primary); border-color: var(--text-secondary); }
+  #lb-rows tr { cursor: pointer; }
+  #lb-rows tr:hover td { background: var(--accent-bg); }
+  td.na { color: var(--text-muted); }
 </style>
 </head>
 <body>
@@ -231,6 +237,25 @@
     </div>
   </section>
 
+  <section class="card">
+    <div class="panel-head">
+      <h2>Alpha leaderboard</h2>
+      <button id="lb-run">Rank all strategies</button>
+      <span class="hint" id="lb-status"></span>
+    </div>
+    <p class="desc" style="margin-top:0">Every strategy at its default settings. Alpha is the yearly return left after accounting for market exposure (regression on the benchmark, Newey-West t-stats). A t-stat of 3 or more is the bar for a result picked from many candidates. Click a row to backtest it.</p>
+    <div id="lb-table" hidden style="overflow-x:auto; margin-top:12px">
+      <table>
+        <thead><tr>
+          <th>Strategy</th><th class="num">Published</th>
+          <th class="num">Alpha/yr</th><th class="num">t-stat</th>
+          <th class="num">Before pub.</th><th class="num">After pub.</th><th class="num hide-sm">Change</th>
+        </tr></thead>
+        <tbody id="lb-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
   <section class="card" id="bt" hidden>
     <div class="panel-head">
       <h2 id="bt-title"></h2>
@@ -260,11 +285,24 @@
       <span id="bt-scale-note">Unshaded = roughly matching. Growth of 100, log scale.</span>
     </div>
     <div class="chips" id="bt-diag"></div>
-    <div class="metrics">
-      <table>
-        <thead><tr><th></th><th class="num">Strategy</th><th class="num" id="bt-metrics-bench">Benchmark</th></tr></thead>
-        <tbody id="bt-metrics"></tbody>
-      </table>
+    <div class="metrics two-col">
+      <div>
+        <h3>Performance</h3>
+        <table>
+          <thead><tr><th></th><th class="num">Strategy</th><th class="num" id="bt-metrics-bench">Benchmark</th></tr></thead>
+          <tbody id="bt-metrics"></tbody>
+        </table>
+        <p class="hint">Idle cash earns the Fed funds rate; Sharpe is on returns above it.</p>
+      </div>
+      <div>
+        <h3 id="alpha-title">Alpha</h3>
+        <table>
+          <thead><tr><th>Period</th><th class="num">Years</th><th class="num">Alpha/yr</th><th class="num">t-stat</th><th class="num hide-sm">Beta</th></tr></thead>
+          <tbody id="alpha-rows"></tbody>
+        </table>
+        <p class="summary" id="alpha-verdict" style="margin-top:8px"></p>
+        <p class="hint" id="alpha-source"></p>
+      </div>
     </div>
   </section>
 
@@ -613,6 +651,25 @@
       ctx.fillStyle = color;
       ctx.fillRect(Math.max(0, x1), 0, Math.min(width, x2) - Math.max(0, x1), height);
     }
+
+    // Publication marker: a dashed line on the first trading day of the publication year.
+    const pub = btData.alpha?.published;
+    if (pub) {
+      const i = btData.dates.findIndex(d => d >= `${pub}-01-01`);
+      const x = i > 0 ? ts.logicalToCoordinate(i) : null;
+      if (Number.isFinite(x) && x >= 0 && x <= width) {
+        ctx.strokeStyle = css("--text-secondary");
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, height); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = css("--text-secondary");
+        ctx.font = "12px system-ui, sans-serif";
+        const label = `Published ${pub}`;
+        const w = ctx.measureText(label).width;
+        ctx.fillText(label, x + 6 + w > width ? x - 6 - w : x + 6, 14);
+      }
+    }
   }
   // Redraw on pan/zoom, and on chart resize: a width change alone keeps the
   // logical range (so no range event fires) but moves every coordinate.
@@ -778,6 +835,8 @@
       tbody.appendChild(tr);
     }
 
+    renderAlpha(r);
+
     // Conditions per regime
     $("out-summary").textContent = summarize(r.conditions.outperform, "On days it outperformed");
     $("under-summary").textContent = summarize(r.conditions.underperform, "On days it underperformed");
@@ -786,6 +845,102 @@
     $("bt-conditions").hidden = false;
     if (!location.search.includes("noscroll")) $("bt").scrollIntoView({ behavior: "smooth", block: "start" });
   }
+
+  // =====================================================================
+  // Alpha: per-backtest table and the all-strategy leaderboard
+  // =====================================================================
+  const SIGNIFICANT_T = 3;
+  const fmtAlpha = (a) => signedPct(a * 100);
+
+  // Significance as a text label (never colour alone).
+  function tCell(t) {
+    const td = el("td", "num", t.toFixed(2));
+    const abs = Math.abs(t);
+    if (abs >= SIGNIFICANT_T) td.appendChild(el("span", "sig strong", "significant"));
+    else if (abs >= 2) td.appendChild(el("span", "sig", "weak"));
+    return td;
+  }
+
+  function renderAlpha(r) {
+    const a = r.alpha;
+    $("alpha-title").textContent = `Alpha vs. ${r.market}`;
+    const tbody = $("alpha-rows");
+    tbody.replaceChildren();
+    const rows = [["Full sample", a.full]];
+    if (a.published) rows.push([`Before ${a.published}`, a.before], [`${a.published} onward`, a.after]);
+    for (const [label, s] of rows) {
+      const tr = el("tr");
+      tr.appendChild(el("td", "", label));
+      if (!s) {
+        const td = el("td", "num na", "too little data (< 2 years)");
+        td.colSpan = 4;
+        tr.appendChild(td);
+      } else {
+        tr.append(el("td", "num", s.years.toFixed(1)), el("td", "num", fmtAlpha(s.alpha)), tCell(s.t_stat), el("td", "num hide-sm", s.beta.toFixed(2)));
+      }
+      tbody.appendChild(tr);
+    }
+    $("alpha-verdict").textContent = alphaVerdict(a);
+    $("alpha-source").textContent = r.source ? `Source: ${r.source}` : "";
+  }
+
+  function alphaVerdict(a) {
+    const f = a.full;
+    if (!f) return "Not enough data to measure alpha.";
+    const strength = Math.abs(f.t_stat) >= SIGNIFICANT_T ? "statistically significant"
+      : Math.abs(f.t_stat) >= 2 ? "suggestive but below the t ≥ 3 bar" : "indistinguishable from zero";
+    let text = `Full-sample alpha of ${fmtAlpha(f.alpha)}/yr is ${strength}.`;
+    if (!a.published) return text + " No publication date, so no before/after test.";
+    if (!a.before) return text + ` The data starts too close to publication (${a.published}) to test before vs. after; all of it is post-publication.`;
+    if (!a.after) return text + ` Too little data after publication (${a.published}) to test decay.`;
+    const kept = a.after.alpha / a.before.alpha;
+    if (a.before.alpha <= 0) return text + ` There was no positive alpha before publication to decay.`;
+    if (kept < 0) return text + ` Alpha was ${fmtAlpha(a.before.alpha)} before publication and turned negative after: the edge disappeared.`;
+    if (kept < 0.75) return text + ` Alpha fell from ${fmtAlpha(a.before.alpha)} to ${fmtAlpha(a.after.alpha)} after publication, keeping ${Math.round(kept * 100)}%: consistent with the edge being partly arbitraged away.`;
+    return text + ` Alpha held up after publication (${fmtAlpha(a.before.alpha)} → ${fmtAlpha(a.after.alpha)}).`;
+  }
+
+  function lbCell(s) {
+    return s ? el("td", "num", `${fmtAlpha(s.alpha)} (t ${s.t_stat.toFixed(1)})`) : el("td", "num na", "—");
+  }
+
+  $("lb-run").addEventListener("click", async () => {
+    const btn = $("lb-run"), status = $("lb-status");
+    btn.disabled = true; status.className = "hint"; status.textContent = "Running every strategy…";
+    try {
+      const res = await fetch("/api/leaderboard");
+      const r = await res.json();
+      if (!res.ok) throw new Error(r.detail || res.statusText);
+      const tbody = $("lb-rows");
+      tbody.replaceChildren();
+      for (const row of r.rows) {
+        const a = row.alpha;
+        const tr = el("tr");
+        tr.title = row.source || "";
+        tr.append(
+          el("td", "", row.name),
+          el("td", "num", a.published ?? "—"),
+          a.full ? el("td", "num", fmtAlpha(a.full.alpha)) : el("td", "num na", "—"),
+          a.full ? tCell(a.full.t_stat) : el("td", "num na", "—"),
+          lbCell(a.before), lbCell(a.after),
+          el("td", "num hide-sm" + (a.before && a.after ? "" : " na"),
+             a.before && a.after ? `${signedPct((a.after.alpha - a.before.alpha) * 100)} pts` : "—"),
+        );
+        tr.addEventListener("click", () => {
+          $("strategy").value = row.strategy;
+          selectStrategy(row.strategy);
+          $("run").click();
+        });
+        tbody.appendChild(tr);
+      }
+      $("lb-table").hidden = false;
+      status.textContent = "";
+    } catch (e) {
+      status.className = "hint error"; status.textContent = e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   // =====================================================================
   // Boot
@@ -807,6 +962,8 @@
     // ?run=<strategy key> runs that strategy with defaults on load.
     // ?normalize=1 starts the backtest chart relative to the benchmark.
     if (params.get("normalize") === "1") $("bt-normalize").click();
+    // ?leaderboard=1 ranks all strategies on load.
+    if (params.get("leaderboard") === "1") $("lb-run").click();
     if (params.get("run")) {
       $("strategy").value = params.get("run");
       selectStrategy(params.get("run"));

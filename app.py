@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backtest import backtest
+from backtest import SIGNIFICANT_T, backtest
 from data_loader import get_ticker, load_prices
 from regime import describe_period
 from strategies import BENCHMARKS, STRATEGIES, universe_for
@@ -82,10 +82,15 @@ def strategies():
         "benchmarks": BENCHMARKS,
         "strategies": [
             {"key": key, "name": s["name"], "description": s["description"],
-             "benchmark": s["benchmark"], "params": s["params"]}
+             "benchmark": s["benchmark"], "params": s["params"],
+             "published": s.get("published"), "source": s.get("source")}
             for key, s in STRATEGIES.items()
         ],
     }
+
+
+def default_params(spec: dict) -> dict:
+    return {p["name"]: p["default"] for p in spec["params"]}
 
 
 class BacktestRequest(BaseModel):
@@ -102,7 +107,7 @@ def run_backtest(req: BacktestRequest):
     spec = STRATEGIES.get(req.strategy)
     if spec is None:
         raise HTTPException(404, f"Unknown strategy {req.strategy!r}")
-    params = {p["name"]: p["default"] for p in spec["params"]}
+    params = default_params(spec)
     for p in spec["params"]:
         if p["name"] in req.params:
             value = req.params[p["name"]]
@@ -111,10 +116,26 @@ def run_backtest(req: BacktestRequest):
     if benchmark not in BENCHMARKS:
         raise HTTPException(400, f"Unknown benchmark {benchmark!r}")
     try:
-        result = backtest(spec["fn"], universe_for(req.strategy, params), benchmark, params, req.start, req.end)
+        result = backtest(spec["fn"], universe_for(req.strategy, params), benchmark, params, req.start, req.end,
+                          published=spec.get("published"))
     except (ValueError, KeyError) as e:
         raise HTTPException(400, f"Backtest failed: {e}")
-    return {"strategy": req.strategy, "name": spec["name"], "params": params, **result}
+    return {"strategy": req.strategy, "name": spec["name"], "params": params,
+            "source": spec.get("source"), **result}
+
+
+@app.get("/api/leaderboard")
+def leaderboard():
+    """Alpha (full sample, before and after publication) for every strategy at default settings."""
+    rows = []
+    for key, spec in STRATEGIES.items():
+        params = default_params(spec)
+        r = backtest(spec["fn"], universe_for(key, params), spec["benchmark"], params,
+                     published=spec.get("published"), describe=False)
+        rows.append({"strategy": key, "name": spec["name"], "source": spec.get("source"),
+                     "market": r["market"], "alpha": r["alpha"]})
+    rows.sort(key=lambda row: -(row["alpha"]["full"] or {}).get("t_stat", float("-inf")))
+    return {"significant_t": SIGNIFICANT_T, "rows": rows}
 
 
 @app.get("/")
