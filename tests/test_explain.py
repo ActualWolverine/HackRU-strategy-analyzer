@@ -67,6 +67,23 @@ def test_period_facts(result):
     assert "th percentile" not in "".join(v for k, v in f.items() if k.startswith("condition_") and ("1st" in v or "2nd" in v or "3rd" in v))
 
 
+def test_period_facts_include_alpha_inflections(result):
+    r, spec, params = result
+    stats = bt.period_stats(spec["fn"], universe_for(KEY, params), spec["benchmark"], params, "2018-06-01", "2020-12-31")
+    f = period_facts(stats, spec, params, [])
+    inf = stats["inflections"]
+    assert f"beta {inf['beta']:.2f}" in f["alpha_definition"]
+    assert inf["turning_points"], "2018-2020 has clear alpha turns for the SMA strategy"
+    for t in inf["turning_points"]:
+        assert t["date"] in f[f"inflection_{t['n']}"]
+        assert f"inflection_{t['n']}_position" in f
+    # The template gives each inflection its own cited section.
+    out = TemplateExplainer().explain(explain.PERIOD_TASK, f, {})
+    headings = [s["heading"] for s in out["sections"]]
+    for t in inf["turning_points"]:
+        assert any(h.startswith(t["date"]) for h in headings)
+
+
 def test_period_stats_rejects_empty_window(result):
     _, spec, params = result
     with pytest.raises(ValueError):

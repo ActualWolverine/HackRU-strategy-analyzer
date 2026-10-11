@@ -15,6 +15,7 @@ credited with T-bill-like interest rather than zero.
 import numpy as np
 import pandas as pd
 from data_loader import get_closes, get_macro_daily, load_market_state
+from inflections import describe_inflections
 from regime import compare_conditions
 from stats import ols_hac
 
@@ -204,7 +205,15 @@ def period_stats(strategy, tickers: list[str], benchmark: str, params: dict, sta
 
     gross = w.abs().sum(axis=1)
     share = labels.reindex(s.index).value_counts(normalize=True) * 100
+    # Alpha uses the full-backtest beta, the same fit as the alpha table.
+    market_ret = closes[market].pct_change().fillna(0.0)
+    fit = alpha_stats(strat.loc[first:], market_ret.loc[first:], rf.loc[first:])
+    beta = fit["beta"] if fit else 0.0
+    # Weights for the whole backtest so trades just outside the window still show.
+    inflections = describe_inflections(s, market_ret[window], rf[window], beta,
+                                       weights.loc[first:], load_market_state())
     return {
+        "inflections": inflections,
         "start": s.index[0].strftime("%Y-%m-%d"), "end": s.index[-1].strftime("%Y-%m-%d"),
         "n_days": int(window.sum()), "benchmark": benchmark,
         "strategy_return": total(s), "benchmark_return": total(b), "excess_return": total(s) - total(b),

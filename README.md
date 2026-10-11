@@ -50,6 +50,13 @@ On Vercel, the explanation cache lives in memory per function instance, so it re
 
 Three uses in the dashboard: *Explain strategy* (which indicators matter and why the strategy works or fails under them), *Select period* on the backtest chart (what happened in that window and why, for a learner), and clicking any indicator.
 
+**Alpha inflection points** (`inflections.py`). For a selected period, the engine finds where cumulative alpha turned. Daily alpha is (r − rf) − β(m − rf), with the full-backtest β, so it adds up to the number in the alpha table. A peak or trough counts only once alpha reverses from it by at least max(1 point, 20% of the window's range), and legs shorter than 5 days are dropped. For each turn it records:
+- the alpha earned before and after, split exactly into **timing**, (net exposure − β) × market excess return, and **selection**, from holding assets that beat or lagged the market;
+- real position changes within 5 days;
+- the three indicators that shifted most.
+
+Gemini explains each turn from those facts, one section per turn, and the turns are marked on the chart. The split separates "it held more or less market than β assumes" from "it picked assets well or badly". For the 200-day SMA, every turn is pure timing; for cross-sectional momentum in 2008–09, selection dominates (+32% vs. −8% timing).
+
 ### Additional market-condition indicators
 
 The condition summaries compare indicator values on a selected period (or on

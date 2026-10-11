@@ -365,6 +365,14 @@
         </table>
       </div>
     </div>
+    <div id="turns-block" hidden style="margin-top:16px">
+      <h3>Turning points in alpha</h3>
+      <p class="hint" id="turns-note" style="margin:0 0 8px"></p>
+      <table>
+        <thead><tr><th>#</th><th>Date</th><th>Turn</th><th class="num">Alpha before</th><th class="num">Alpha after</th><th class="hide-sm">Position change nearby</th></tr></thead>
+        <tbody id="turns-rows"></tbody>
+      </table>
+    </div>
     <div class="expl" id="period-body" style="margin-top:16px"></div>
   </section>
 
@@ -1103,7 +1111,45 @@
   function clearPeriod() {
     period = null;
     redrawBtSelection();
+    stratSeries.setMarkers([]);
     $("period-card").hidden = true;
+  }
+
+  // Alpha turning points: a table, plus numbered markers on the strategy line.
+  function renderTurns(inf) {
+    const rows = $("turns-rows");
+    rows.replaceChildren();
+    const turns = inf?.turning_points ?? [];
+    $("turns-block").hidden = !inf;
+    if (!inf) return;
+    $("turns-note").textContent = turns.length
+      ? `Where cumulative alpha (return after removing market exposure, beta ${inf.beta.toFixed(2)}) reversed by at least ${(inf.min_swing * 100).toFixed(1)} points. ` +
+        `Alpha over the whole selection: ${signedPct(inf.window_alpha * 100)} (timing ${signedPct(inf.window_alpha_timing * 100)}, ` +
+        `selection ${signedPct((inf.window_alpha - inf.window_alpha_timing) * 100)}). Timing = alpha from holding more or less ` +
+        `market exposure than beta; selection = alpha from holding assets that beat or lagged the market. Markers on the chart above.`
+      : `No turning points: alpha moved one way through the selection (${signedPct(inf.window_alpha * 100)} in total).`;
+    for (const t of turns) {
+      const tr = el("tr");
+      const trades = [...t.trades_near].sort((a, b) => Math.abs(a.offset_days) - Math.abs(b.offset_days)).slice(0, 2)
+        .map(x => `${x.date}: exposure ${x.net_before.toFixed(2)} → ${x.net_after.toFixed(2)}`).join("; ") || "none";
+      // Alpha per leg, with its exact split: timing (exposure vs. beta) and selection (assets vs. market).
+      const legCell = (leg) => {
+        const td = el("td", "num", signedPct(leg.alpha * 100));
+        if (leg.alpha_timing !== undefined)
+          td.appendChild(el("span", "dir", `timing ${signedPct(leg.alpha_timing * 100)} · selection ${signedPct(leg.alpha_selection * 100)}`));
+        return td;
+      };
+      tr.append(el("td", "", String(t.n)), el("td", "", t.date), el("td", "", t.kind === "peak" ? "Alpha peaked" : "Alpha bottomed"),
+                legCell(t.leg_before), legCell(t.leg_after), el("td", "hide-sm", trades));
+      rows.appendChild(tr);
+    }
+    stratSeries.setMarkers(turns.map(t => ({
+      time: t.date,
+      position: t.kind === "peak" ? "aboveBar" : "belowBar",
+      shape: t.kind === "peak" ? "arrowDown" : "arrowUp",
+      color: css("--text-primary"),
+      text: String(t.n),
+    })));
   }
   $("period-clear").addEventListener("click", clearPeriod);
 
@@ -1113,6 +1159,7 @@
     $("period-card").hidden = false;
     $("period-range").textContent = `${start} to ${end}`;
     $("period-stats").replaceChildren(); $("period-rows").replaceChildren(); $("period-chips").replaceChildren(); $("period-body").replaceChildren();
+    renderTurns(null); stratSeries.setMarkers([]);
     setBusy(status, explainInfo.provider === "gemini" ? "Computing, then asking the model (a few seconds)…" : "Computing…");
     $("period-card").scrollIntoView({ behavior: "smooth", block: "start" });
     try {
@@ -1132,6 +1179,7 @@
                      ["Position changes", st.position_changes], ["Best day", signedPct(st.best_day * 100)], ["Worst day", signedPct(st.worst_day * 100)]];
       for (const [k, v] of chips) { const c = el("span", "chip", `${k}: `); c.appendChild(el("b", "", String(v))); $("period-chips").appendChild(c); }
       renderConditions($("period-rows"), r.conditions, { showTypical: false, context: `In ${st.start} to ${st.end}` });
+      renderTurns(st.inflections);
       renderExplanation($("period-body"), r);
       status.replaceChildren();
     } catch (e) {
