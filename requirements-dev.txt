@@ -1,0 +1,7 @@
+# Development: tests, data refresh, and the statsmodels reference that
+# tests/test_stats_parity.py checks stats.py against.
+-r requirements.txt
+pytest
+statsmodels
+yfinance
+requests

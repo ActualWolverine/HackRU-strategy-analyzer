@@ -1,0 +1,12 @@
+# Not needed at runtime; keeps the deployed function small.
+.venv/
+.git/
+__pycache__/
+.pytest_cache/
+tests/
+*.pdf
+bench.py
+download_data.py
+requirements-dev.txt
+# Secrets: set GEMINI_API_KEY in the Vercel project settings instead.
+.env

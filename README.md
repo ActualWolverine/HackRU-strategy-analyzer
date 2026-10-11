@@ -12,16 +12,25 @@ cd HackRU-strategy-analyzer
 python -m venv .venv
 # Windows:      .venv\Scripts\activate
 # macOS/Linux:  source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # or requirements.txt to only run the app
 python -m uvicorn app:app
 ```
 
 Then open http://127.0.0.1:8000.
 
+- `requirements.txt` is the runtime set (what gets deployed). `requirements-dev.txt` adds pytest, yfinance for refreshing data, and statsmodels as the reference implementation the tests compare against.
 - The repo includes a data snapshot in `data/` (prices through 2026-10-09), so no download is needed. To refresh it: `python download_data.py` (needs internet; results will then differ slightly from the numbers below).
 - The dashboard loads its chart library from the jsDelivr CDN, so the browser needs internet access.
 - **AI explanations (optional).** Copy `.env.example` to `.env` and set `GEMINI_API_KEY`. Without a key, every "Explain" feature still works and shows the engine's facts through an offline template, labelled as such. `.env` is git-ignored; never commit it.
 - Tests: `python -m pytest`. Benchmark: `python bench.py`.
+
+### Deploying to Vercel (Hobby)
+
+Vercel detects the FastAPI `app` in `app.py` with no configuration, and serves `/static` from its CDN. Push the repo and import it in Vercel, or run `vercel deploy`, then add `GEMINI_API_KEY` under Project Settings → Environment Variables (optional; without it explanations use the offline template).
+
+The bundle fits comfortably under Vercel's 500 MB Python limit: runtime dependencies are about 254 MB, the data snapshot 7 MB. `.vercelignore` keeps tests, the PDFs, `.env` and the data-download script out of the upload. The size came from statsmodels and scipy (~185 MB) being used for just two calculations; `stats.py` reimplements those in numpy, and `tests/test_stats_parity.py` checks they match statsmodels to within 1e-9 on every strategy and on several cointegration cases. If you ever need more room, `pyarrow` (88 MB) is the next largest and is only used to read the Parquet files.
+
+On Vercel, the explanation cache lives in memory per function instance, so it resets on cold starts.
 
 **Two components.** The core workflow is a Python backend (FastAPI, `app.py`) running the engine, and a browser dashboard (`static/index.html`) that calls it over HTTP/JSON. Every backtest is computed on request by the backend; nothing is precomputed or exported. Endpoints: `/api/prices`, `/api/conditions`, `/api/strategies`, `/api/backtest`, `/api/leaderboard`, `/api/indicators`, `/api/explain/strategy`, `/api/explain/period`.
 
@@ -111,7 +120,7 @@ At 1–2 bp per side, realistic for SPY today, it clears the t ≥ 3 bar on the 
 ## Invariants and tests
 
 ```bash
-python -m pytest        # 247 tests, about 1 minute; no network needed
+python -m pytest        # 269 tests, about 1 minute; no network needed
 ```
 
 | Invariant | How it's tested (`tests/`) |
@@ -126,14 +135,16 @@ The engine is vectorized: each strategy sees the whole price table, so no-look-a
 
 ## Performance
 
-**27,000–36,000 bars/sec**: a full SPY backtest (7,786 daily bars) in 215–300 ms, median of 20 runs. The spread is run-to-run variation on the same machine (four runs: 25.8k, 27.4k, 31.0k, 36.1k bars/sec); quote the lower figure.
+**~63,000 bars/sec**: a full SPY backtest (7,786 daily bars) in about 122 ms, median of 20 runs (three runs: 63.2k, 63.4k, 64.2k bars/sec).
+
+This roughly doubled when the statsmodels regression was replaced by the numpy version in `stats.py` (previously 27,000–36,000 bars/sec): the three alpha regressions per backtest were a large share of the time, mostly statsmodels' per-call overhead rather than arithmetic.
 
 That covers everything the dashboard request does: strategy signals, the engine, metrics, three alpha regressions, regime segmentation and the market-conditions report over all 13 indicators. Data is loaded from Parquet once before timing.
 
 - CPU: AMD Ryzen AI 9 HX 370 (12 cores / 24 threads)
 - RAM: 31.1 GB
 - OS: Windows 11 Home, build 26200
-- Python 3.14.6 (64-bit); pandas 3.0.6, numpy 2.5.3, statsmodels 0.15.0
+- Python 3.14.6 (64-bit); pandas 3.0.6, numpy 2.5.3
 
 To reproduce (prints the same fields for your machine):
 
@@ -162,7 +173,8 @@ python bench.py
 ## External dependencies and what was written this weekend
 
 **Prebuilt, not written by us:**
-- **Python libraries:** pandas, numpy, pyarrow (Parquet), statsmodels (OLS with Newey-West errors; Engle-Granger cointegration test), FastAPI + uvicorn (web server), requests, yfinance, pytest, google-genai, python-dotenv.
+- **Python libraries (runtime):** pandas, numpy, pyarrow (Parquet), FastAPI + uvicorn (web server), google-genai, python-dotenv.
+- **Python libraries (development only):** pytest; yfinance and requests for refreshing data; statsmodels as the reference that `stats.py` (our numpy OLS with Newey-West errors and Engle-Granger test) is tested against.
 - **External API:** Google Gemini (`gemini-3.5-flash-lite` by default) for the optional explanation layer. It receives only engine-computed facts and indicator definitions; the key lives in a git-ignored `.env`.
 - **Data:** Yahoo Finance daily prices via yfinance; FRED public CSV endpoint (Treasury yields, Fed funds, CPI, unemployment, Baa−10Y spread, VIX).
 - **Frontend:** TradingView lightweight-charts 4.2.0, loaded from jsDelivr.
@@ -175,6 +187,6 @@ python bench.py
 - all 15 strategy implementations, reimplemented from the sources listed in `PUBLICATIONS`;
 - the FastAPI backend and the dashboard;
 - the bounded AI explanation layer (fact extraction, prompt, validator, offline fallback) and the indicator reference text;
-- the four test suites and the benchmark.
+- the five test suites, the benchmark, and `stats.py` (numpy reimplementation of the two statsmodels routines, tested for parity).
 
 No code was reused from prior projects.

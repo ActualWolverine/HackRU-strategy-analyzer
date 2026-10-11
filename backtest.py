@@ -14,10 +14,9 @@ credited with T-bill-like interest rather than zero.
 
 import numpy as np
 import pandas as pd
-import statsmodels.api as sm
-
 from data_loader import get_closes, get_macro_daily, load_market_state
 from regime import compare_conditions
+from stats import ols_hac
 
 TRADING_DAYS = 252
 LABEL_WINDOW = 63  # ~3 months: rolling window used to judge relative performance
@@ -87,13 +86,15 @@ def alpha_stats(strategy: pd.Series, market: pd.Series, rf: pd.Series) -> dict |
     df = pd.DataFrame({"s": strategy - rf, "m": market - rf}).dropna()
     if len(df) < MIN_ALPHA_YEARS * TRADING_DAYS:
         return None
-    fit = sm.OLS(df["s"], sm.add_constant(df["m"])).fit(cov_type="HAC", cov_kwds={"maxlags": 10})
-    alpha = float(fit.params["const"] * TRADING_DAYS)
-    residual_vol = float(fit.resid.std() * np.sqrt(TRADING_DAYS))
+    X = np.column_stack([np.ones(len(df)), df["m"].to_numpy()])
+    params, tvalues = ols_hac(df["s"].to_numpy(), X, maxlags=10)
+    resid = df["s"].to_numpy() - X @ params
+    alpha = float(params[0] * TRADING_DAYS)
+    residual_vol = float(resid.std(ddof=1) * np.sqrt(TRADING_DAYS))
     return {
         "alpha": alpha,
-        "t_stat": float(fit.tvalues["const"]),
-        "beta": float(fit.params["m"]),
+        "t_stat": float(tvalues[0]),
+        "beta": float(params[1]),
         "info_ratio": alpha / residual_vol if residual_vol > 0 else float("nan"),
         "start": df.index[0].strftime("%Y-%m-%d"),
         "end": df.index[-1].strftime("%Y-%m-%d"),

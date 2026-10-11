@@ -1,10 +1,9 @@
-yfinance
-pandas
-pyarrow
-requests
+# Runtime: what the app (and Vercel) needs. Keep this list small: Vercel's
+# Python bundle limit is 500 MB uncompressed. Dev tools are in requirements-dev.txt.
 fastapi
-uvicorn[standard]
-statsmodels
-pytest
+uvicorn
+pandas
+numpy
+pyarrow
 google-genai
 python-dotenv

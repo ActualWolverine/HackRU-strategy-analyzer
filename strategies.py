@@ -8,7 +8,7 @@ parameters so the UI can render a form for it. Extra information worth showing
 
 import numpy as np
 import pandas as pd
-from statsmodels.tsa.stattools import coint
+from stats import engle_granger
 
 TRADING_DAYS = 252
 MAX_NET_EXPOSURE = 0.5  # pairs: largest |long - short| allowed, as a fraction of gross
@@ -84,7 +84,7 @@ def pairs_stat_arb(closes, y: str, x: str, lookback: int = 252, entry_z: float =
     weights = pd.DataFrame({y: w["y"], x: w["x"]}, index=closes.index)
 
     # Full-sample diagnostics (descriptive, not used for trading decisions).
-    t_stat, p_value, _ = coint(ly, lx)
+    t_stat, p_value = engle_granger(ly, lx)
     full_beta = np.polyfit(lx, ly, 1)[0]
     full_spread = ly - full_beta * lx
     weights.attrs["diagnostics"] = {
